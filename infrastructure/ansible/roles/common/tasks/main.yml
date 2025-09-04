@@ -1,0 +1,61 @@
+---
+- name: Set timezone
+  timezone:
+    name: UTC
+
+- name: Create application user
+  user:
+    name: '{{ app_user }}'
+    shell: /bin/bash
+    home: '/home/{{ app_user }}'
+    createhome: yes
+    system: no
+
+- name: Add app user to sudo group
+  user:
+    name: '{{ app_user }}'
+    groups: sudo
+    append: yes
+
+- name: Create application directory
+  file:
+    path: '{{ app_dir }}'
+    state: directory
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0755'
+
+- name: Create backup directory
+  file:
+    path: /opt/backups
+    state: directory
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0755'
+
+- name: Install Node.js repository
+  shell: curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+  args:
+    creates: /etc/apt/sources.list.d/nodesource.list
+
+- name: Install Node.js
+  package:
+    name: nodejs
+    state: present
+
+- name: Install pnpm globally
+  npm:
+    name: pnpm
+    global: yes
+    state: present
+
+- name: Configure system limits
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: '{{ item }}'
+    state: present
+  loop:
+    - '* soft nofile 65536'
+    - '* hard nofile 65536'
+    - '* soft nproc 65536'
+    - '* hard nproc 65536'

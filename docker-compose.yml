@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: blog-platform-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: blog_platform
+      POSTGRES_USER: blog_user
+      POSTGRES_PASSWORD: blog_password
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - blog-network
+
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: blog-platform-test-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: blog_test_db
+      POSTGRES_USER: blog_user
+      POSTGRES_PASSWORD: blog_password
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - blog-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: blog-platform-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - blog-network
+    command: redis-server --appendonly yes
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blog-platform-app
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: 'postgresql://blog_user:blog_password@postgres:5432/blog_platform?schema=public'
+      NODE_ENV: development
+    depends_on:
+      - postgres
+    networks:
+      - blog-network
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  postgres_test_data:
+  redis_data:
+
+networks:
+  blog-network:
+    driver: bridge

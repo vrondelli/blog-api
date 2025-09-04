@@ -1,0 +1,76 @@
+---
+- name: Configure UFW firewall
+  ufw:
+    rule: '{{ item.rule }}'
+    port: '{{ item.port }}'
+    proto: "{{ item.proto | default('tcp') }}"
+  loop:
+    - { rule: 'allow', port: '22' } # SSH
+    - { rule: 'allow', port: '80' } # HTTP
+    - { rule: 'allow', port: '443' } # HTTPS
+  notify: enable ufw
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+    policy: deny
+
+- name: Configure fail2ban for SSH
+  copy:
+    content: |
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 3
+      bantime = 3600
+    dest: /etc/fail2ban/jail.local
+    backup: yes
+  notify: restart fail2ban
+
+- name: Configure fail2ban for nginx
+  copy:
+    content: |
+      [nginx-http-auth]
+      enabled = true
+      filter = nginx-http-auth
+      port = http,https
+      logpath = /var/log/nginx/error.log
+      maxretry = 5
+      bantime = 3600
+
+      [nginx-req-limit]
+      enabled = true
+      filter = nginx-req-limit
+      port = http,https
+      logpath = /var/log/nginx/error.log
+      maxretry = 10
+      bantime = 600
+    dest: /etc/fail2ban/jail.d/nginx.conf
+  notify: restart fail2ban
+
+- name: Disable root SSH login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+    state: present
+  notify: restart ssh
+  when: ansible_user != "root"
+
+- name: Disable password authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+    state: present
+  notify: restart ssh
+
+- name: Configure automatic security updates
+  copy:
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    dest: /etc/apt/apt.conf.d/20auto-upgrades

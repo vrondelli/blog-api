@@ -1,0 +1,88 @@
+---
+- name: Clone application repository
+  git:
+    repo: '{{ git_repo_url }}'
+    dest: '{{ app_dir }}'
+    version: "{{ git_branch | default('main') }}"
+    force: yes
+  become_user: '{{ app_user }}'
+  when: git_repo_url is defined
+
+- name: Create SSL directory
+  file:
+    path: '{{ app_dir }}/docker/ssl'
+    state: directory
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0755'
+
+- name: Generate self-signed certificate (temporary)
+  shell: |
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout {{ app_dir }}/docker/ssl/privkey.pem \
+    -out {{ app_dir }}/docker/ssl/fullchain.pem \
+    -subj "/C=US/ST=State/L=City/O=Organization/CN={{ domain_name }}"
+  args:
+    creates: '{{ app_dir }}/docker/ssl/fullchain.pem'
+  become_user: '{{ app_user }}'
+
+- name: Create environment file
+  template:
+    src: .env.j2
+    dest: '{{ app_dir }}/.env'
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0600'
+
+- name: Create PostgreSQL init directory
+  file:
+    path: '{{ app_dir }}/docker/postgres/init'
+    state: directory
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0755'
+
+- name: Create PostgreSQL init script
+  copy:
+    content: |
+      #!/bin/bash
+      set -e
+
+      # Create application database if it doesn't exist
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+      EOSQL
+    dest: '{{ app_dir }}/docker/postgres/init/01-init.sh'
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0755'
+
+- name: Build and start application
+  shell: |
+    cd {{ app_dir }}
+    docker-compose -f docker-compose.prod.yml up -d --build
+  become_user: '{{ app_user }}'
+
+- name: Wait for application to be ready
+  uri:
+    url: 'http://localhost:{{ app_port }}/health'
+    method: GET
+    status_code: 200
+  retries: 30
+  delay: 10
+
+- name: Run database migrations
+  shell: |
+    cd {{ app_dir }}
+    docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy
+  become_user: '{{ app_user }}'
+
+- name: Create systemd service for application
+  template:
+    src: app.service.j2
+    dest: '/etc/systemd/system/{{ app_name }}.service'
+    mode: '0644'
+  notify:
+    - reload systemd
+    - enable app service

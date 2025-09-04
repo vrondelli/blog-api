@@ -1,0 +1,9 @@
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: enable app service
+  systemd:
+    name: '{{ app_name }}'
+    enabled: yes

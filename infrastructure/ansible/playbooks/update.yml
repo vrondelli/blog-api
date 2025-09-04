@@ -1,0 +1,77 @@
+---
+- name: Update Application
+  hosts: all
+  become: yes
+  gather_facts: no
+
+  vars:
+    backup_dir: '/opt/backups/{{ ansible_date_time.epoch }}'
+
+  tasks:
+    - name: Create backup directory
+      file:
+        path: '{{ backup_dir }}'
+        state: directory
+        owner: '{{ app_user }}'
+        group: '{{ app_user }}'
+        mode: '0755'
+
+    - name: Backup current application
+      shell: |
+        cd {{ app_dir }}
+        tar -czf {{ backup_dir }}/app-backup.tar.gz .
+      args:
+        creates: '{{ backup_dir }}/app-backup.tar.gz'
+
+    - name: Backup database
+      shell: |
+        docker exec postgres-db pg_dump -U {{ postgres_user }} {{ postgres_db }} > {{ backup_dir }}/database-backup.sql
+      become_user: '{{ app_user }}'
+
+    - name: Pull latest code
+      git:
+        repo: '{{ git_repo_url }}'
+        dest: '{{ app_dir }}'
+        version: "{{ git_branch | default('main') }}"
+        force: yes
+      become_user: '{{ app_user }}'
+
+    - name: Copy environment file
+      template:
+        src: .env.j2
+        dest: '{{ app_dir }}/.env'
+        owner: '{{ app_user }}'
+        group: '{{ app_user }}'
+        mode: '0600'
+
+    - name: Build and restart application
+      shell: |
+        cd {{ app_dir }}
+        docker-compose -f docker-compose.prod.yml down
+        docker-compose -f docker-compose.prod.yml build
+        docker-compose -f docker-compose.prod.yml up -d
+      become_user: '{{ app_user }}'
+
+    - name: Wait for application to be ready
+      uri:
+        url: 'http://localhost:{{ app_port }}/health'
+        method: GET
+        status_code: 200
+      retries: 30
+      delay: 10
+
+    - name: Run database migrations
+      shell: |
+        cd {{ app_dir }}
+        docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy
+      become_user: '{{ app_user }}'
+
+    - name: Clean old Docker images
+      shell: docker system prune -af
+
+    - name: Display update status
+      debug:
+        msg:
+          - 'Application updated successfully!'
+          - 'Backup created at: {{ backup_dir }}'
+          - "Application URL: {{ 'https' if use_ssl else 'http' }}://{{ domain_name }}"

@@ -1,0 +1,48 @@
+---
+- name: Setup VPS for NestJS Application
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Generate secure passwords
+    postgres_password: "{{ lookup('password', '/tmp/postgres_password chars=ascii_letters,digits length=32') }}"
+    redis_password: "{{ lookup('password', '/tmp/redis_password chars=ascii_letters,digits length=32') }}"
+
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install basic packages
+      package:
+        name:
+          - curl
+          - wget
+          - git
+          - ufw
+          - fail2ban
+          - htop
+          - vim
+          - unzip
+        state: present
+
+  roles:
+    - common
+    - security
+    - docker
+    - application
+    - ssl
+    - monitoring
+
+  post_tasks:
+    - name: Display deployment information
+      debug:
+        msg:
+          - 'Deployment completed successfully!'
+          - "Application URL: {{ 'https' if use_ssl else 'http' }}://{{ domain_name }}"
+          - 'PostgreSQL Password: {{ postgres_password }}'
+          - 'Redis Password: {{ redis_password }}'
+          - 'Please save these passwords securely!'

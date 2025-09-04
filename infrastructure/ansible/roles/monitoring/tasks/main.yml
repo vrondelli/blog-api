@@ -1,0 +1,91 @@
+---
+- name: Create monitoring scripts directory
+  file:
+    path: /opt/monitoring
+    state: directory
+    mode: '0755'
+
+- name: Create health check script
+  copy:
+    content: |
+      #!/bin/bash
+
+      # Check application health
+      if curl -f http://localhost:{{ app_port }}/health > /dev/null 2>&1; then
+          echo "$(date): Application is healthy"
+      else
+          echo "$(date): Application health check failed"
+          # Restart application
+          cd {{ app_dir }}
+          sudo -u {{ app_user }} docker-compose -f docker-compose.prod.yml restart app
+      fi
+
+      # Check disk space
+      DISK_USAGE=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+      if [ $DISK_USAGE -gt 80 ]; then
+          echo "$(date): Warning: Disk usage is ${DISK_USAGE}%"
+      fi
+
+      # Check memory usage
+      MEM_USAGE=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+      if [ $MEM_USAGE -gt 90 ]; then
+          echo "$(date): Warning: Memory usage is ${MEM_USAGE}%"
+      fi
+    dest: /opt/monitoring/health-check.sh
+    mode: '0755'
+
+- name: Create log rotation for application
+  copy:
+    content: |
+      {{ app_dir }}/logs/*.log {
+        daily
+        rotate 30
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0644 {{ app_user }} {{ app_user }}
+        postrotate
+          cd {{ app_dir }}
+          docker-compose -f docker-compose.prod.yml restart app
+        endscript
+      }
+    dest: /etc/logrotate.d/{{ app_name }}
+
+- name: Setup health check cron job
+  cron:
+    name: 'Application health check'
+    minute: '*/5'
+    job: '/opt/monitoring/health-check.sh >> /var/log/health-check.log 2>&1'
+
+- name: Create backup script
+  copy:
+    content: |
+      #!/bin/bash
+
+      BACKUP_DIR="/opt/backups/$(date +%Y%m%d_%H%M%S)"
+      mkdir -p $BACKUP_DIR
+
+      # Backup database
+      docker exec postgres-db pg_dump -U {{ postgres_user }} {{ postgres_db }} > $BACKUP_DIR/database.sql
+
+      # Backup application files (excluding node_modules and logs)
+      tar -czf $BACKUP_DIR/application.tar.gz -C {{ app_dir }} \
+          --exclude=node_modules \
+          --exclude=logs \
+          --exclude=.git \
+          .
+
+      # Keep only last 7 days of backups
+      find /opt/backups -type d -mtime +7 -exec rm -rf {} +
+
+      echo "$(date): Backup completed in $BACKUP_DIR"
+    dest: /opt/monitoring/backup.sh
+    mode: '0755'
+
+- name: Setup daily backup cron job
+  cron:
+    name: 'Daily backup'
+    minute: '0'
+    hour: '3'
+    job: '/opt/monitoring/backup.sh >> /var/log/backup.log 2>&1'

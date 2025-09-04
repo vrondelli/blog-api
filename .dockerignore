@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+.env
+.nyc_output
+coverage
+.coverage
+.cover
+.coveralls.yml
+dist
+.DS_Store
+.vscode
+prisma/dev.db
+prisma/dev.db-journal

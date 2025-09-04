@@ -1,0 +1,173 @@
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      branch:
+        description: 'Branch/Tag to deploy'
+        required: true
+        default: 'main'
+        type: string
+      force_deploy:
+        description: 'Force deployment (skip health checks)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  NODE_VERSION: '18'
+  PNPM_VERSION: '8'
+
+jobs:
+  manual-deploy:
+    name: Manual Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Validate inputs
+        run: |
+          echo "🚀 Deploying to: ${{ github.event.inputs.environment }}"
+          echo "📝 Branch/Tag: ${{ github.event.inputs.branch }}"
+          echo "⚡ Force deploy: ${{ github.event.inputs.force_deploy }}"
+
+      - name: Setup Python for Ansible
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
+          fi
+
+      - name: Create Ansible inventory
+        run: |
+          mkdir -p /tmp/ansible
+
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            HOST="${{ secrets.PRODUCTION_HOST }}"
+            USER="${{ secrets.PRODUCTION_USER }}"
+            DOMAIN="${{ secrets.PRODUCTION_DOMAIN }}"
+            DB_NAME="blog_db"
+          else
+            HOST="${{ secrets.STAGING_HOST }}"
+            USER="${{ secrets.STAGING_USER }}"
+            DOMAIN="${{ secrets.STAGING_DOMAIN }}"
+            DB_NAME="blog_db_staging"
+          fi
+
+          cat > /tmp/ansible/hosts.yml << EOF
+          all:
+            children:
+              ${{ github.event.inputs.environment }}:
+                hosts:
+                  ${{ github.event.inputs.environment }}-server:
+                    ansible_host: $HOST
+                    ansible_user: $USER
+                    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+                    domain_name: $DOMAIN
+                    ssl_email: ${{ secrets.SSL_EMAIL }}
+                    git_repo_url: ${{ github.server_url }}/${{ github.repository }}
+                    git_branch: ${{ github.event.inputs.branch }}
+                    
+            vars:
+              app_name: nestjs-blog-api
+              app_port: 3000
+              app_user: deploy
+              app_dir: /opt/nestjs-blog-api
+              postgres_db: $DB_NAME
+              postgres_user: blog_user
+              postgres_version: "15"
+              redis_port: 6379
+              docker_compose_version: "2.21.0"
+              use_ssl: true
+              ssl_provider: letsencrypt
+          EOF
+
+      - name: Pre-deployment health check
+        if: ${{ !github.event.inputs.force_deploy }}
+        run: |
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            DOMAIN="${{ secrets.PRODUCTION_DOMAIN }}"
+          else
+            DOMAIN="${{ secrets.STAGING_DOMAIN }}"
+          fi
+
+          echo "🔍 Checking current application health..."
+          if curl -f -s "https://$DOMAIN/health" > /dev/null; then
+            echo "✅ Application is currently healthy"
+          else
+            echo "⚠️ Application health check failed - proceeding with deployment"
+          fi
+
+      - name: Deploy application
+        run: |
+          cd infrastructure/ansible
+          echo "🚀 Starting deployment..."
+          ansible-playbook -i /tmp/ansible/hosts.yml playbooks/update.yml -v
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: False
+
+      - name: Post-deployment verification
+        run: |
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            DOMAIN="${{ secrets.PRODUCTION_DOMAIN }}"
+          else
+            DOMAIN="${{ secrets.STAGING_DOMAIN }}"
+          fi
+
+          echo "⏳ Waiting for application to start..."
+          sleep 30
+
+          echo "🔍 Verifying deployment..."
+          if curl -f -s "https://$DOMAIN/health" > /dev/null; then
+            echo "✅ Deployment successful! Application is healthy."
+            echo "🌐 Application URL: https://$DOMAIN"
+          else
+            echo "❌ Deployment verification failed!"
+            echo "🔗 Please check: https://$DOMAIN/health"
+            exit 1
+          fi
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            DOMAIN="${{ secrets.PRODUCTION_DOMAIN }}"
+          else
+            DOMAIN="${{ secrets.STAGING_DOMAIN }}"
+          fi
+
+          echo "📊 Deployment Summary:"
+          echo "- Environment: ${{ github.event.inputs.environment }}"
+          echo "- Branch/Tag: ${{ github.event.inputs.branch }}"
+          echo "- Commit: ${{ github.sha }}"
+          echo "- Application URL: https://$DOMAIN"
+          echo "- Health Check: https://$DOMAIN/health"
+          echo "- API Documentation: https://$DOMAIN/api"
