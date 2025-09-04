@@ -3,14 +3,6 @@ name: Database Migration
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        default: 'staging'
-        type: choice
-        options:
-          - staging
-          - production
       migration_type:
         description: 'Migration type'
         required: true
@@ -27,9 +19,9 @@ on:
 
 jobs:
   migrate:
-    name: Database Migration - ${{ github.event.inputs.environment }}
+    name: Database Migration - Production
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
+    environment: production
 
     steps:
       - name: Checkout code
@@ -43,62 +35,41 @@ jobs:
             echo "Please type 'CONFIRM' in the confirm_reset field"
             exit 1
           fi
-          echo "⚠️ Database reset confirmed for ${{ github.event.inputs.environment }}"
+          echo "⚠️ Database reset confirmed for production"
 
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-
-          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
-            ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
-          else
-            ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
-          fi
+          ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
 
       - name: Run database migration
         run: |
-          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
-            HOST="${{ secrets.PRODUCTION_HOST }}"
-            USER="${{ secrets.PRODUCTION_USER }}"
-          else
-            HOST="${{ secrets.STAGING_HOST }}"
-            USER="${{ secrets.STAGING_USER }}"
-          fi
-
           case "${{ github.event.inputs.migration_type }}" in
             "deploy")
               echo "🚀 Running database migrations..."
-              ssh $USER@$HOST "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy"
+              ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy"
               ;;
             "reset")
               echo "⚠️ RESETTING DATABASE..."
-              ssh $USER@$HOST "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate reset --force"
+              ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate reset --force"
               ;;
             "seed")
               echo "🌱 Seeding database..."
-              ssh $USER@$HOST "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma db seed"
+              ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma db seed"
               ;;
           esac
 
       - name: Verify database status
         run: |
-          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
-            HOST="${{ secrets.PRODUCTION_HOST }}"
-            USER="${{ secrets.PRODUCTION_USER }}"
-          else
-            HOST="${{ secrets.STAGING_HOST }}"
-            USER="${{ secrets.STAGING_USER }}"
-          fi
-
           echo "🔍 Checking database status..."
-          ssh $USER@$HOST "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate status"
+          ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} "cd /opt/nestjs-blog-api && docker-compose -f docker-compose.prod.yml exec -T app npx prisma migrate status"
 
       - name: Migration summary
         run: |
           echo "📊 Migration Summary:"
-          echo "- Environment: ${{ github.event.inputs.environment }}"
+          echo "- Environment: Production"
           echo "- Migration Type: ${{ github.event.inputs.migration_type }}"
           echo "- Timestamp: $(date -u)"
           echo "✅ Migration completed successfully!"
