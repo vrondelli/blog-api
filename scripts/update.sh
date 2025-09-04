@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Update NestJS Application on VPS
-# Usage: ./update.sh [environment] [domain] [vps-ip] [git-branch]
+# Usage: ./update.sh [environment] [domain] [vps-ip] [git-branch] [git-repo-url]
+#   OR:  ./update.sh --env-file [path-to-.env-file]
 
 set -e
 
@@ -11,12 +12,25 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Default values
-ENVIRONMENT=${1:-production}
-DOMAIN=${2}
-VPS_IP=${3}
-GIT_BRANCH=${4:-main}
-GIT_REPO_URL=${5:-$(git remote get-url origin 2>/dev/null || "")}
+# Check if using environment file
+if [[ "$1" == "--env-file" ]]; then
+    ENV_FILE="${2:-infrastructure/ansible/.env}"
+    source "$(dirname "$0")/load-env.sh" "$ENV_FILE"
+    
+    # Use environment variables
+    ENVIRONMENT=${ENVIRONMENT:-production}
+    DOMAIN=${DOMAIN_NAME}
+    VPS_IP=${VPS_HOST}
+    GIT_BRANCH=${GIT_BRANCH:-main}
+    GIT_REPO_URL=${GIT_REPO_URL}
+else
+    # Use command line arguments
+    ENVIRONMENT=${1:-production}
+    DOMAIN=${2}
+    VPS_IP=${3}
+    GIT_BRANCH=${4:-main}
+    GIT_REPO_URL=${5:-$(git remote get-url origin 2>/dev/null || "")}
+fi
 
 # Function to print colored output
 print_status() {
@@ -34,15 +48,25 @@ print_error() {
 # Validate inputs
 if [ -z "$DOMAIN" ]; then
     print_error "Domain is required!"
-    echo "Usage: $0 [environment] <domain> <vps-ip> [git-branch] [git-repo-url]"
-    echo "Example: $0 production example.com 1.2.3.4 main"
+    echo ""
+    echo "Usage Options:"
+    echo "  1. Command line: $0 [environment] <domain> <vps-ip> [git-branch] [git-repo-url]"
+    echo "     Example: $0 production example.com 1.2.3.4 main"
+    echo ""
+    echo "  2. Environment file: $0 --env-file [path-to-.env-file]"
+    echo "     Example: $0 --env-file infrastructure/ansible/.env"
     exit 1
 fi
 
 if [ -z "$VPS_IP" ]; then
     print_error "VPS IP is required!"
-    echo "Usage: $0 [environment] <domain> <vps-ip> [git-branch] [git-repo-url]"
-    echo "Example: $0 production example.com 1.2.3.4 main"
+    echo ""
+    echo "Usage Options:"
+    echo "  1. Command line: $0 [environment] <domain> <vps-ip> [git-branch] [git-repo-url]"
+    echo "     Example: $0 production example.com 1.2.3.4 main"
+    echo ""
+    echo "  2. Environment file: $0 --env-file [path-to-.env-file]"
+    echo "     Example: $0 --env-file infrastructure/ansible/.env"
     exit 1
 fi
 
@@ -56,35 +80,24 @@ print_status "Git Repository: $GIT_REPO_URL"
 # Navigate to infrastructure directory
 cd "$(dirname "$0")/../infrastructure/ansible"
 
-# Create temporary inventory file
-TEMP_INVENTORY=$(mktemp)
-cat > "$TEMP_INVENTORY" << EOF
-all:
-  children:
-    $ENVIRONMENT:
-      hosts:
-        ${ENVIRONMENT}-server:
-          ansible_host: $VPS_IP
-          ansible_user: root
-          ansible_ssh_private_key_file: ~/.ssh/id_rsa
-          domain_name: $DOMAIN
-          git_repo_url: $GIT_REPO_URL
-          git_branch: $GIT_BRANCH
-          
-  vars:
-    app_name: nestjs-blog-api
-    app_port: 3000
-    app_user: deploy
-    app_dir: /opt/nestjs-blog-api
-    postgres_db: blog_db
-    postgres_user: blog_user
-    use_ssl: true
-EOF
+# Set environment variables for Ansible
+export VPS_HOST="$VPS_IP"
+export VPS_USER="root"
+export SSH_PRIVATE_KEY_FILE="~/.ssh/blog_api_deploy"
+export DOMAIN_NAME="$DOMAIN"
+export GIT_REPO_URL="$GIT_REPO_URL"
+export GIT_BRANCH="$GIT_BRANCH"
+export ENVIRONMENT="$ENVIRONMENT"
+
+print_status "Environment variables set:"
+print_status "  VPS_HOST: $VPS_HOST"
+print_status "  DOMAIN_NAME: $DOMAIN_NAME"
+print_status "  GIT_BRANCH: $GIT_BRANCH"
+print_status "  ENVIRONMENT: $ENVIRONMENT"
 
 print_status "Testing connection to VPS..."
-if ! ansible all -i "$TEMP_INVENTORY" -m ping; then
+if ! ansible all -i inventory/hosts.yml -m ping; then
     print_error "Cannot connect to VPS!"
-    rm "$TEMP_INVENTORY"
     exit 1
 fi
 
@@ -99,11 +112,8 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# Run the update playbook
-ansible-playbook -i "$TEMP_INVENTORY" playbooks/update.yml
-
-# Clean up
-rm "$TEMP_INVENTORY"
+# Run the update playbook with environment variables
+ANSIBLE_ROLES_PATH=./roles ansible-playbook -i inventory/hosts.yml playbooks/update.yml
 
 print_status "Update completed successfully!"
 print_status "Application is available at: https://$DOMAIN"

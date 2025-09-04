@@ -21,7 +21,7 @@ jobs:
   migrate:
     name: Database Migration - Production
     runs-on: ubuntu-latest
-    environment: production
+    # environment: production  # Uncomment when GitHub environment is configured
 
     steps:
       - name: Checkout code

@@ -1,24 +1,25 @@
 ---
-# Environment-based Ansible Inventory
-# Values are populated from environment variables or script parameters
+# Dynamic Ansible Inventory Template
+# This file uses environment variables for dynamic configuration
+# Use scripts/deploy.sh or export variables manually
 
 all:
   hosts:
     production-server:
-      ansible_host: "{{ lookup('env', 'VPS_HOST') }}"
-      ansible_user: "{{ lookup('env', 'VPS_USER') | default('root') }}"
-      ansible_ssh_private_key_file: "{{ lookup('env', 'SSH_PRIVATE_KEY_FILE') | default('~/.ssh/blog_api_deploy') }}"
-      domain_name: "{{ lookup('env', 'DOMAIN_NAME') }}"
-      ssl_email: "{{ lookup('env', 'SSL_EMAIL') | default('admin@' + lookup('env', 'DOMAIN_NAME')) }}"
-      git_repo_url: "{{ lookup('env', 'GIT_REPO_URL') }}"
-      git_branch: "{{ lookup('env', 'GIT_BRANCH') | default('main') }}"
+      ansible_host: "{{ ansible_host | default(lookup('env', 'VPS_HOST')) }}"
+      ansible_user: "{{ ansible_user | default(lookup('env', 'VPS_USER') | default('root')) }}"
+      ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file | default(lookup('env', 'SSH_PRIVATE_KEY_FILE') | default('~/.ssh/blog_api_deploy')) }}"
+      domain_name: "{{ domain_name | default(lookup('env', 'DOMAIN_NAME')) }}"
+      ssl_email: "{{ ssl_email | default(lookup('env', 'SSL_EMAIL') | default('admin@' + lookup('env', 'DOMAIN_NAME'))) }}"
+      git_repo_url: "{{ git_repo_url | default(lookup('env', 'GIT_REPO_URL')) }}"
+      git_branch: "{{ git_branch | default(lookup('env', 'GIT_BRANCH') | default('main')) }}"
 
   vars:
     # Application settings
     app_name: "{{ lookup('env', 'APP_NAME') | default('nestjs-blog-api') }}"
     app_port: "{{ lookup('env', 'APP_PORT') | default('3000') }}"
     app_user: "{{ lookup('env', 'APP_USER') | default('deploy') }}"
-    app_dir: '/opt/{{ app_name }}'
+    app_dir: "/opt/{{ app_name }}"
 
     # Database settings
     postgres_db: "{{ lookup('env', 'POSTGRES_DB') | default('blog_db') }}"
@@ -37,7 +38,3 @@ all:
 
     # Environment
     environment: "{{ lookup('env', 'ENVIRONMENT') | default('production') }}"
-
-    # Git settings
-    git_repo_url: git@github.com:yourusername/blog-api.git
-    git_branch: main

@@ -22,7 +22,7 @@ jobs:
   manual-deploy:
     name: Manual Deploy to Production
     runs-on: ubuntu-latest
-    environment: production
+    # environment: production  # Uncomment when GitHub environment is configured
 
     steps:
       - name: Checkout code
@@ -57,6 +57,7 @@ jobs:
         run: |
           mkdir -p /tmp/ansible
           cat > /tmp/ansible/hosts.yml << EOF
+          ---
           all:
             hosts:
               production-server:
@@ -96,7 +97,7 @@ jobs:
         run: |
           cd infrastructure/ansible
           echo "🚀 Starting deployment..."
-          ansible-playbook -i /tmp/ansible/hosts.yml playbooks/update.yml -v
+          ANSIBLE_ROLES_PATH=./roles ansible-playbook -i /tmp/ansible/hosts.yml playbooks/update.yml -v
         env:
           ANSIBLE_HOST_KEY_CHECKING: False
 

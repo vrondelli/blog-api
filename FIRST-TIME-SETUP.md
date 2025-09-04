@@ -157,48 +157,66 @@ ssh -i ~/.ssh/blog_api_deploy root@YOUR_VPS_IP
 
 ---
 
-## 🚀 Phase 3: First Deployment
+## 🚀 Phase 3: Environment Configuration & First Deployment
 
-### Step 3.1: Configure Ansible Inventory
+### Step 3.1: Configure Environment Variables
 
-Edit the inventory file:
+The deployment system now uses environment variables for all configuration, making it much easier to manage multiple environments.
 
-```bash
-# Edit infrastructure/ansible/inventory/hosts.yml
-```
-
-Update with your VPS details:
-
-```yaml
-all:
-  hosts:
-    production:
-      ansible_host: YOUR_VPS_IP
-      ansible_user: root
-      ansible_ssh_private_key_file: ~/.ssh/blog_api_deploy
-      domain_name: yourdomain.com
-      ssl_email: your-email@domain.com
-
-  vars:
-    app_name: nestjs-blog-api
-    app_port: 3000
-    app_user: deploy
-    app_dir: /opt/nestjs-blog-api
-    postgres_db: blog_db
-    postgres_user: blog_user
-    postgres_version: '15'
-    redis_port: 6379
-    docker_compose_version: '2.21.0'
-    use_ssl: true
-    ssl_provider: letsencrypt
-    git_repo_url: git@github.com:yourusername/blog-api.git
-    git_branch: main
-```
-
-### Step 3.2: Run Initial Deployment
+**Create your environment configuration:**
 
 ```bash
-# Deploy to your VPS
+# Copy the environment template
+cp infrastructure/ansible/.env.template infrastructure/ansible/.env
+
+# Edit the file with your actual values
+vim infrastructure/ansible/.env  # or use your preferred editor
+```
+
+**Update the following required values in `.env`:**
+
+```bash
+# VPS Configuration (Required)
+VPS_HOST=YOUR_VPS_IP_ADDRESS
+VPS_USER=root
+SSH_PRIVATE_KEY_FILE=~/.ssh/blog_api_deploy
+
+# Domain Configuration (Required)
+DOMAIN_NAME=yourdomain.com
+SSL_EMAIL=your-email@yourdomain.com
+
+# Git Repository Configuration (Required)
+GIT_REPO_URL=git@github.com:yourusername/blog-api.git
+GIT_BRANCH=main
+
+# Environment
+ENVIRONMENT=production
+```
+
+**All other variables have sensible defaults and are optional.**
+
+### Step 3.2: Validate Configuration
+
+```bash
+# Load and validate your environment configuration
+./scripts/load-env.sh
+
+# This will:
+# ✅ Load environment variables from .env file
+# ✅ Validate required variables are set
+# ✅ Show current configuration
+# ✅ Check for any issues
+```
+
+### Step 3.3: Run First Deployment
+
+Now you can deploy using the environment file:
+
+```bash
+# Deploy using environment file (recommended)
+./scripts/deploy.sh --env-file infrastructure/ansible/.env
+
+# OR use command line arguments (still works)
 ./scripts/deploy.sh production yourdomain.com YOUR_VPS_IP
 
 # This will:
