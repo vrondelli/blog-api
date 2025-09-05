@@ -325,6 +325,29 @@ After completing all phases, you should have:
 curl https://yourdomain.com/health
 curl https://yourdomain.com/api
 
+# Test API endpoints
+# Create a blog post
+curl -X POST https://yourdomain.com/api/posts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "My First Blog Post",
+    "content": "This is the content of my first blog post running with modern infrastructure."
+  }'
+
+# Create a comment (replace POST_ID with actual post ID)
+curl -X POST https://yourdomain.com/api/posts/POST_ID/comments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Great post! Thanks for sharing.",
+    "author": "Blog Reader"
+  }'
+
+# Get all posts
+curl https://yourdomain.com/api/posts
+
+# Get a specific post with comments
+curl "https://yourdomain.com/api/posts/POST_ID?includeComments=true"
+
 # Check GitHub Actions
 # Go to: https://github.com/yourusername/blog-api/actions
 ```
@@ -408,11 +431,11 @@ certbot --nginx -d yourdomain.com
 
 You now have a streamlined production CI/CD pipeline:
 
-✅ **Production-ready application** running on VPS  
+✅ **Production-ready application** running on VPS with PM2 process manager  
 ✅ **Automated SSL certificates** with Let's Encrypt  
 ✅ **Security hardening** with firewall and fail2ban  
 ✅ **GitHub Actions CI/CD** for automatic deployments  
-✅ **Zero-downtime deployments**
+✅ **Zero-downtime deployments** with PM2 clustering
 
 ### Next Steps
 
@@ -442,6 +465,12 @@ curl https://yourdomain.com/health
 # Check logs
 ssh root@YOUR_VPS_IP
 docker logs nestjs-app
+
+# Monitor PM2 processes
+ssh root@YOUR_VPS_IP
+docker exec -it nestjs-app pm2 list
+docker exec -it nestjs-app pm2 logs
+docker exec -it nestjs-app pm2 monit
 ```
 
 ### Important Files

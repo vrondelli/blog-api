@@ -58,7 +58,7 @@
 
     - name: Wait for application to be ready
       uri:
-        url: 'http://localhost:{{ app_port }}/health'
+        url: 'http://localhost:{{ nginx_port | default(80) }}/health'
         method: GET
         status_code: 200
       retries: 30

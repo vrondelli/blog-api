@@ -41,6 +41,11 @@ lerna-debug.log*
 .env.test.local
 .env.production.local
 .env.local
+infrastructure/ansible/.env
+
+# Sensitive configuration files
+**/secrets.yml
+**/vault.yml
 
 # temp directory
 .temp

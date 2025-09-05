@@ -1,0 +1,64 @@
+---
+- name: Setup SSL Certificate
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    domain_name: "{{ lookup('env', 'DOMAIN_NAME') | default('yourdomain.com') }}"
+    ssl_email: "{{ lookup('env', 'SSL_EMAIL') | default('your-email@domain.com') }}"
+    app_user: deploy
+    app_dir: /opt/nestjs-blog-api
+    use_ssl: true
+    ssl_provider: letsencrypt
+
+  tasks:
+    - name: Install snapd
+      package:
+        name: snapd
+        state: present
+
+    - name: Install certbot via snap
+      snap:
+        name: certbot
+        classic: yes
+
+    - name: Create certbot symlink
+      file:
+        src: /snap/bin/certbot
+        dest: /usr/bin/certbot
+        state: link
+
+    - name: Stop nginx for certificate generation
+      shell: |
+        cd {{ app_dir }}
+        docker-compose -f docker-compose.prod.yml stop nginx
+      become_user: '{{ app_user }}'
+
+    - name: Generate Let's Encrypt certificate
+      shell: |
+        certbot certonly --standalone \
+        --non-interactive \
+        --agree-tos \
+        --email {{ ssl_email }} \
+        -d {{ domain_name }}
+
+    - name: Create SSL directory
+      file:
+        path: '{{ app_dir }}/docker/ssl'
+        state: directory
+        owner: '{{ app_user }}'
+        group: '{{ app_user }}'
+        mode: '0755'
+
+    - name: Copy SSL certificates to application directory
+      shell: |
+        cp /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem {{ app_dir }}/docker/ssl/
+        cp /etc/letsencrypt/live/{{ domain_name }}/privkey.pem {{ app_dir }}/docker/ssl/
+        chown {{ app_user }}:{{ app_user }} {{ app_dir }}/docker/ssl/*.pem
+
+    - name: Start nginx with SSL
+      shell: |
+        cd {{ app_dir }}
+        docker-compose -f docker-compose.prod.yml up -d nginx
+      become_user: '{{ app_user }}'
