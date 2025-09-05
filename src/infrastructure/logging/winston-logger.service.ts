@@ -1,5 +1,6 @@
 import { Injectable, LoggerService } from '@nestjs/common';
 import * as winston from 'winston';
+import * as fs from 'fs';
 
 @Injectable()
 export class WinstonLoggerService implements LoggerService {
@@ -14,9 +15,9 @@ export class WinstonLoggerService implements LoggerService {
         winston.format.colorize({ all: true }),
         winston.format.printf(
           ({ timestamp, level, message, context, stack }) => {
-            const contextStr = context ? `[${context}] ` : '';
-            const stackStr = stack ? `\n${stack}` : '';
-            return `${timestamp} ${level}: ${contextStr}${message}${stackStr}`;
+            const contextStr = context ? `[${String(context)}] ` : '';
+            const stackStr = stack ? `\n${String(stack)}` : '';
+            return `${String(timestamp)} ${String(level)}: ${contextStr}${String(message)}${stackStr}`;
           },
         ),
       ),
@@ -35,29 +36,39 @@ export class WinstonLoggerService implements LoggerService {
     });
 
     // Create logs directory if it doesn't exist
-    const fs = require('fs');
     if (!fs.existsSync('logs')) {
       fs.mkdirSync('logs');
     }
   }
 
-  log(message: any, context?: string) {
-    this.logger.info(message, { context });
+  log(message: string, context?: string) {
+    this.logger.info(String(message), {
+      context: context ? String(context) : undefined,
+    });
   }
 
-  error(message: any, stack?: string, context?: string) {
-    this.logger.error(message, { context, stack });
+  error(message: string, stack?: string, context?: string) {
+    this.logger.error(String(message), {
+      context: context ? String(context) : undefined,
+      stack: stack ? String(stack) : undefined,
+    });
   }
 
-  warn(message: any, context?: string) {
-    this.logger.warn(message, { context });
+  warn(message: string, context?: string) {
+    this.logger.warn(String(message), {
+      context: context ? String(context) : undefined,
+    });
   }
 
-  debug(message: any, context?: string) {
-    this.logger.debug(message, { context });
+  debug(message: string, context?: string) {
+    this.logger.debug(String(message), {
+      context: context ? String(context) : undefined,
+    });
   }
 
-  verbose(message: any, context?: string) {
-    this.logger.verbose(message, { context });
+  verbose(message: string, context?: string) {
+    this.logger.verbose(String(message), {
+      context: context ? String(context) : undefined,
+    });
   }
 }

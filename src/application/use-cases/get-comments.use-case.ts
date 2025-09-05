@@ -19,13 +19,28 @@ export class GetCommentsUseCase {
   async execute(
     query: GetCommentsQuery,
   ): Promise<PaginatedResult<CommentEntity>> {
-    // Try to get from cache first
-    const cachedComments = await this.cacheService.getComments(
-      query.blogPostId,
-      query.page,
-      query.limit,
-      query.sortOrder,
-    );
+    // For cursor-based pagination, we'll use a simpler cache strategy
+    // Only cache the first page (no cursor) since cursor pagination is dynamic
+    const useCache = !query.cursor;
+
+    // Try to get from cache first (only for first page without cursor)
+    let cachedComments: {
+      data: CommentEntity[];
+      total: number;
+      limit: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+      nextCursor?: string | null;
+    } | null = null;
+    if (useCache) {
+      cachedComments =
+        (await this.cacheService.getComments(
+          query.blogPostId,
+          query.limit,
+          query.sortOrder,
+          query.depth,
+        )) || null;
+    }
 
     if (cachedComments) {
       this.logger.debug('Returning comments from cache', 'GetCommentsUseCase');
@@ -37,20 +52,23 @@ export class GetCommentsUseCase {
     const result = await this.commentRepository.findByBlogPostId(
       query.blogPostId,
       {
-        page: query.page,
         limit: query.limit,
         sortOrder: query.sortOrder,
+        depth: query.depth,
+        cursor: query.cursor,
       },
     );
 
-    // Cache the result
-    await this.cacheService.setComments(
-      query.blogPostId,
-      query.page,
-      query.limit,
-      result,
-      query.sortOrder,
-    );
+    // Cache the result (only for first page without cursor)
+    if (useCache) {
+      await this.cacheService.setComments(
+        query.blogPostId,
+        query.limit,
+        result,
+        query.sortOrder,
+        query.depth,
+      );
+    }
 
     return result;
   }

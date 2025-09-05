@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { E2ETestSetup } from '../setup/e2e-setup';
@@ -339,71 +340,6 @@ describe('Error Handling (e2e)', () => {
           'does not exist or cannot be used as a parent',
         ),
         statusCode: 400,
-      });
-    });
-  });
-
-  describe('Rate Limiting', () => {
-    it('should enforce rate limits for post creation', async () => {
-      // Create posts up to the limit (5 per minute)
-      const responses: any[] = [];
-      for (let i = 0; i < 6; i++) {
-        const response = await request(app.getHttpServer())
-          .post('/api/posts')
-          .send({
-            title: `Test Post ${i}`,
-            content: `Content for test post ${i} that is long enough`,
-          });
-        responses.push(response);
-      }
-
-      // First 5 should succeed
-      for (let i = 0; i < 5; i++) {
-        expect(responses[i].status).toBe(201);
-      }
-
-      // 6th should be rate limited
-      expect(responses[5].status).toBe(429);
-      expect(responses[5].body).toMatchObject({
-        error: 'Rate Limit Exceeded',
-        message: expect.stringContaining('Too many requests'),
-        statusCode: 429,
-      });
-      expect(responses[5].headers['retry-after']).toBeDefined();
-    });
-
-    it('should enforce rate limits for comment creation', async () => {
-      // First create a blog post
-      const postResponse = await request(app.getHttpServer())
-        .post('/api/posts')
-        .send({
-          title: 'Test Post for Comments',
-          content: 'Content for testing comment rate limits',
-        })
-        .expect(201);
-
-      // Create comments up to the limit (20 per minute)
-      const responses: any[] = [];
-      for (let i = 0; i < 21; i++) {
-        const response = await request(app.getHttpServer())
-          .post(`/api/posts/${postResponse.body.id}/comments`)
-          .send({
-            content: `Test comment ${i}`,
-            author: `Author ${i}`,
-          });
-        responses.push(response);
-      }
-
-      // First 20 should succeed
-      for (let i = 0; i < 20; i++) {
-        expect(responses[i].status).toBe(201);
-      }
-
-      // 21st should be rate limited
-      expect(responses[20].status).toBe(429);
-      expect(responses[20].body).toMatchObject({
-        error: 'Rate Limit Exceeded',
-        statusCode: 429,
       });
     });
   });

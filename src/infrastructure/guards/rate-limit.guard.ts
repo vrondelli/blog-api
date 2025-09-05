@@ -1,8 +1,10 @@
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { CacheService } from '../cache/cache.service';
 import { RateLimitException } from '../exceptions/custom.exceptions';
 import { WinstonLoggerService } from '../logging/winston-logger.service';
+import { RateLimitConfig as AppRateLimitConfig } from '../config/rate-limit.config';
 
 interface RateLimitConfig {
   windowMs: number; // Time window in milliseconds
@@ -12,18 +14,15 @@ interface RateLimitConfig {
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  private readonly defaultConfig: RateLimitConfig = {
-    windowMs: 60 * 1000, // 1 minute
-    maxRequests: 100, // 100 requests per minute
-  };
-
   constructor(
     private readonly cacheService: CacheService,
     private readonly logger: WinstonLoggerService,
+    private readonly configService: ConfigService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
+
     const config = this.getConfig(request.url);
 
     const key = this.generateKey(request, config);
@@ -49,24 +48,40 @@ export class RateLimitGuard implements CanActivate {
   }
 
   private getConfig(endpoint: string): RateLimitConfig {
-    // More permissive limits for testing environment
-    const isTestEnv = process.env.NODE_ENV === 'test';
+    const rateLimitConfig =
+      this.configService.get<AppRateLimitConfig>('rateLimit');
+
+    if (!rateLimitConfig) {
+      // Fallback to default values if config is not available
+      return {
+        windowMs: 60000,
+        maxRequests:
+          endpoint.includes('/posts') && !endpoint.includes('/comments')
+            ? 5
+            : endpoint.includes('/comments')
+              ? 20
+              : 100,
+      };
+    }
 
     if (endpoint.includes('/posts') && !endpoint.includes('/comments')) {
       return {
-        windowMs: 60 * 1000, // 1 minute
-        maxRequests: isTestEnv ? 1000 : 5, // 1000 posts per minute in test, 5 in production
+        windowMs: rateLimitConfig.windowMs,
+        maxRequests: rateLimitConfig.posts.maxRequests,
       };
     }
 
     if (endpoint.includes('/comments')) {
       return {
-        windowMs: 60 * 1000, // 1 minute
-        maxRequests: isTestEnv ? 1000 : 20, // 1000 comments per minute in test, 20 in production
+        windowMs: rateLimitConfig.windowMs,
+        maxRequests: rateLimitConfig.comments.maxRequests,
       };
     }
 
-    return this.defaultConfig;
+    return {
+      windowMs: rateLimitConfig.windowMs,
+      maxRequests: rateLimitConfig.default.maxRequests,
+    };
   }
 
   private generateKey(request: Request, config: RateLimitConfig): string {
@@ -75,8 +90,8 @@ export class RateLimitGuard implements CanActivate {
     }
 
     // Default: use IP address and endpoint
-    const ip = request.ip || request.connection.remoteAddress || 'unknown';
-    const endpoint = `${request.method}:${request.route?.path || request.path}`;
+    const ip = request.ip || request.connection?.remoteAddress || 'unknown';
+    const endpoint = `${request.method}:${(request.route as { path?: string })?.path || request.path}`;
 
     return `rate_limit:${ip}:${endpoint}`;
   }

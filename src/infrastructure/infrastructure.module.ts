@@ -7,12 +7,16 @@ import { PrismaCommentRepository } from './repositories/prisma-comment.repositor
 import { CacheConfigModule } from './cache/cache-config.module';
 import { CacheService } from './cache/cache.service';
 import { LoggingModule } from './logging/logging.module';
+import { WinstonLoggerService } from './logging/winston-logger.service';
+import { CursorService } from './pagination/cursor.service';
 
 @Module({
   imports: [CacheConfigModule, LoggingModule],
   providers: [
     DatabaseService,
     CacheService,
+    CursorService,
+    WinstonLoggerService,
     {
       provide: BlogPostRepository,
       useClass: PrismaBlogPostRepository,
@@ -22,6 +26,13 @@ import { LoggingModule } from './logging/logging.module';
       useClass: PrismaCommentRepository,
     },
   ],
-  exports: [BlogPostRepository, CommentRepository, CacheService],
+  exports: [
+    DatabaseService,
+    BlogPostRepository,
+    CommentRepository,
+    CacheService,
+    CursorService,
+    WinstonLoggerService,
+  ],
 })
 export class InfrastructureModule {}

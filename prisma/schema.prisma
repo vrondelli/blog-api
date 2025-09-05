@@ -38,5 +38,8 @@ model Comment {
   parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies    Comment[] @relation("CommentReplies")
 
+  // Indexes for efficient cursor-based pagination
+  @@index([blogPostId, createdAt, id]) // For top-level comments pagination
+  @@index([parentId, createdAt, id])   // For replies pagination
   @@map("comments")
 }

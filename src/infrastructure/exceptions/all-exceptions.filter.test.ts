@@ -6,7 +6,6 @@ import { Prisma } from '@prisma/client';
 import {
   BlogPostNotFoundException,
   ValidationException,
-  CacheException,
   RateLimitException,
 } from './custom.exceptions';
 
@@ -14,8 +13,17 @@ describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
   let logger: jest.Mocked<WinstonLoggerService>;
   let mockArgumentsHost: jest.Mocked<ArgumentsHost>;
-  let mockResponse: any;
-  let mockRequest: any;
+  let mockResponse: {
+    status: jest.Mock;
+    json: jest.Mock;
+    header: jest.Mock;
+  };
+  let mockRequest: {
+    url: string;
+    method: string;
+    ip: string;
+    headers: Record<string, string>;
+  };
 
   beforeEach(async () => {
     const mockLogger = {
@@ -40,10 +48,10 @@ describe('AllExceptionsFilter', () => {
 
     mockArgumentsHost = {
       switchToHttp: jest.fn().mockReturnValue({
-        getResponse: () => mockResponse,
-        getRequest: () => mockRequest,
+        getResponse: (): typeof mockResponse => mockResponse,
+        getRequest: (): typeof mockRequest => mockRequest,
       }),
-    } as any;
+    } as unknown as jest.Mocked<ArgumentsHost>;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

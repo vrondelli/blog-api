@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { BlogPostRepository } from '../../domain/repositories/blog-post.repository';
 import {
   CommentRepository,
@@ -16,11 +16,10 @@ export interface PostWithCommentsResult {
   comments: {
     data: CommentEntity[];
     total: number;
-    page: number;
     limit: number;
-    totalPages: number;
     hasNext: boolean;
     hasPrev: boolean;
+    nextCursor?: string | null;
   } | null;
 }
 
@@ -37,13 +36,14 @@ export class GetPostWithCommentsUseCase {
     query: GetPostWithCommentsQuery,
   ): Promise<PostWithCommentsResult> {
     // Try to get the complete result from cache first
-    const cachedResult = await this.cacheService.getPostWithComments(
-      query.postId,
-      query.includeComments,
-      query.commentsLimit,
-      query.commentsPage,
-      query.commentsSortOrder,
-    );
+    const cachedResult: PostWithCommentsResult | null =
+      (await this.cacheService.getPostWithComments(
+        query.postId,
+        query.includeComments,
+        query.commentsLimit,
+        query.commentsCursor,
+        query.commentsSortOrder,
+      )) || null;
 
     if (cachedResult) {
       this.logger.debug(
@@ -59,9 +59,10 @@ export class GetPostWithCommentsUseCase {
     );
 
     // Get the post (try cache first for individual post)
-    let post = await this.cacheService.getBlogPost(query.postId);
+    let post: BlogPost | null =
+      (await this.cacheService.getBlogPost(query.postId)) || null;
     if (!post) {
-      post = await this.blogPostRepository.findById(query.postId);
+      post = (await this.blogPostRepository.findById(query.postId)) || null;
       if (post) {
         await this.cacheService.setBlogPost(query.postId, post);
       }
@@ -75,26 +76,29 @@ export class GetPostWithCommentsUseCase {
     let comments: {
       data: CommentEntity[];
       total: number;
-      page: number;
       limit: number;
-      totalPages: number;
       hasNext: boolean;
       hasPrev: boolean;
+      nextCursor?: string | null;
     } | null = null;
     if (query.includeComments) {
       const commentOptions: CommentQueryOptions = {
-        page: query.commentsPage || 1,
         limit: query.commentsLimit || 10,
         sortOrder: query.commentsSortOrder,
+        cursor: query.commentsCursor,
+        depth: query.commentsDepth ?? 2, // default depth
       };
 
-      // Try to get comments from cache
-      comments = await this.cacheService.getComments(
-        query.postId,
-        commentOptions.page,
-        commentOptions.limit,
-        commentOptions.sortOrder,
-      );
+      // Try to get comments from cache (only for first page/no cursor)
+      if (!commentOptions.cursor) {
+        comments =
+          (await this.cacheService.getComments(
+            query.postId,
+            commentOptions.limit,
+            commentOptions.sortOrder,
+            commentOptions.depth,
+          )) || null;
+      }
 
       if (!comments) {
         comments = await this.commentRepository.findByBlogPostId(
@@ -102,13 +106,13 @@ export class GetPostWithCommentsUseCase {
           commentOptions,
         );
 
-        if (comments) {
+        if (comments && !commentOptions.cursor) {
           await this.cacheService.setComments(
             query.postId,
-            commentOptions.page,
             commentOptions.limit,
             comments,
             commentOptions.sortOrder,
+            commentOptions.depth,
           );
         }
       }
@@ -125,7 +129,7 @@ export class GetPostWithCommentsUseCase {
       query.includeComments,
       result,
       query.commentsLimit,
-      query.commentsPage,
+      query.commentsCursor,
       query.commentsSortOrder,
     );
 

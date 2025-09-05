@@ -3,58 +3,65 @@ import { BlogPostRepository } from '../../domain/repositories/blog-post.reposito
 import { BlogPost } from '../../domain/entities/blog-post.entity';
 import { Comment as CommentEntity } from '../../domain/entities/comment.entity';
 import { DatabaseService } from '../database/database.service';
+import { WinstonLoggerService } from '../logging/winston-logger.service';
 
 @Injectable()
 export class PrismaBlogPostRepository implements BlogPostRepository {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly logger: WinstonLoggerService,
+  ) {}
 
   async findAll(): Promise<BlogPost[]> {
     const posts = await this.databaseService.blogPost.findMany({
       orderBy: {
         createdAt: 'desc',
       },
+      include: {
+        _count: {
+          select: {
+            comments: {
+              where: {
+                parentId: null, // Only count top-level comments
+              },
+            },
+          },
+        },
+      },
     });
 
-    // Get comment counts separately for performance
-    const postsWithCounts = await Promise.all(
-      posts.map(async (post) => {
-        const commentsCount = await this.databaseService.comment.count({
-          where: {
-            blogPostId: post.id,
-            parentId: null, // Only count top-level comments
-          },
-        });
-
-        return new BlogPost(
+    return posts.map(
+      (post) =>
+        new BlogPost(
           post.id,
           post.title,
           post.content,
           post.createdAt,
           post.updatedAt,
           undefined, // comments not loaded in findAll
-        );
-      }),
+        ),
     );
-
-    return postsWithCounts;
   }
 
   async findById(id: number): Promise<BlogPost | null> {
     const post = await this.databaseService.blogPost.findUnique({
       where: { id },
+      include: {
+        _count: {
+          select: {
+            comments: {
+              where: {
+                parentId: null, // Only count top-level comments
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!post) {
       return null;
     }
-
-    // Get comment count separately
-    const commentsCount = await this.databaseService.comment.count({
-      where: {
-        blogPostId: post.id,
-        parentId: null, // Only count top-level comments
-      },
-    });
 
     return new BlogPost(
       post.id,
@@ -120,6 +127,11 @@ export class PrismaBlogPostRepository implements BlogPostRepository {
         ),
       );
     } catch (error) {
+      this.logger.error(
+        `Failed to update blog post with ID ${id}`,
+        error instanceof Error ? error.stack : 'Unknown error',
+        'PrismaBlogPostRepository',
+      );
       return null;
     }
   }
@@ -129,8 +141,17 @@ export class PrismaBlogPostRepository implements BlogPostRepository {
       await this.databaseService.blogPost.delete({
         where: { id },
       });
+      this.logger.debug(
+        `Successfully deleted blog post with ID ${id}`,
+        'PrismaBlogPostRepository',
+      );
       return true;
     } catch (error) {
+      this.logger.error(
+        `Failed to delete blog post with ID ${id}`,
+        error instanceof Error ? error.stack : 'Unknown error',
+        'PrismaBlogPostRepository',
+      );
       return false;
     }
   }

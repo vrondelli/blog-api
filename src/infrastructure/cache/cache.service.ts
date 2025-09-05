@@ -2,6 +2,8 @@ import { Injectable, Inject } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { WinstonLoggerService } from '../logging/winston-logger.service';
+import { BlogPost } from '../../domain/entities/blog-post.entity';
+import { Comment } from '../../domain/entities/comment.entity';
 
 @Injectable()
 export class CacheService {
@@ -11,16 +13,16 @@ export class CacheService {
   ) {}
 
   // Blog post caching
-  async getBlogPost(id: number): Promise<any> {
+  async getBlogPost(id: number): Promise<BlogPost | undefined> {
     try {
       return await this.cacheManager.get(`blog_post:${id}`);
-    } catch (error) {
+    } catch {
       this.logger.debug(`Cache get error for blog_post:${id}`, 'CacheService');
       return undefined;
     }
   }
 
-  async setBlogPost(id: number, post: any, ttl?: number): Promise<void> {
+  async setBlogPost(id: number, post: BlogPost, ttl?: number): Promise<void> {
     await this.cacheManager.set(`blog_post:${id}`, post, ttl || 30 * 60 * 1000); // 30 minutes
   }
 
@@ -29,16 +31,16 @@ export class CacheService {
   }
 
   // Blog post list caching
-  async getBlogPostsList(): Promise<any> {
+  async getBlogPostsList(): Promise<BlogPost[] | undefined> {
     try {
       return await this.cacheManager.get('blog_posts:list');
-    } catch (error) {
+    } catch {
       this.logger.debug('Cache get error for blog_posts:list', 'CacheService');
       return undefined;
     }
   }
 
-  async setBlogPostsList(posts: any, ttl?: number): Promise<void> {
+  async setBlogPostsList(posts: BlogPost[], ttl?: number): Promise<void> {
     await this.cacheManager.set(
       'blog_posts:list',
       posts,
@@ -50,17 +52,28 @@ export class CacheService {
     await this.cacheManager.del('blog_posts:list');
   }
 
-  // Comments caching
+  // Comments caching (simplified for cursor pagination)
   async getComments(
     postId: number,
-    page: number,
     limit: number,
     sortOrder?: string,
-  ): Promise<any> {
+    depth?: number,
+  ): Promise<
+    | {
+        data: Comment[];
+        total: number;
+        limit: number;
+        hasNext: boolean;
+        hasPrev: boolean;
+        nextCursor?: string | null;
+      }
+    | undefined
+  > {
     try {
-      const key = `comments:${postId}:${page}:${limit}:${sortOrder || 'default'}`;
+      // Only cache first page (no cursor)
+      const key = `comments:${postId}:first:${limit}:${sortOrder || 'default'}:${depth ?? 2}`;
       return await this.cacheManager.get(key);
-    } catch (error) {
+    } catch {
       this.logger.debug(
         `Cache get error for comments:${postId}`,
         'CacheService',
@@ -71,13 +84,21 @@ export class CacheService {
 
   async setComments(
     postId: number,
-    page: number,
     limit: number,
-    comments: any,
+    comments: {
+      data: Comment[];
+      total: number;
+      limit: number;
+      hasNext: boolean;
+      hasPrev: boolean;
+      nextCursor?: string | null;
+    },
     sortOrder?: string,
+    depth?: number,
     ttl?: number,
   ): Promise<void> {
-    const key = `comments:${postId}:${page}:${limit}:${sortOrder || 'default'}`;
+    // Only cache first page (no cursor)
+    const key = `comments:${postId}:first:${limit}:${sortOrder || 'default'}:${depth ?? 2}`;
     await this.cacheManager.set(key, comments, ttl || 15 * 60 * 1000); // 15 minutes
   }
 
@@ -95,7 +116,7 @@ export class CacheService {
     for (const pattern of commonPatterns) {
       try {
         await this.cacheManager.del(pattern);
-      } catch (error) {
+      } catch {
         // Ignore errors for non-existent keys
       }
     }
@@ -104,40 +125,41 @@ export class CacheService {
   async deleteCommentsForPost(postId: number): Promise<void> {
     // Clear common comment patterns for this post
     const commonPatterns = [
-      `comments:${postId}:1:10:default`,
-      `comments:${postId}:1:10:most_recent`,
-      `comments:${postId}:1:10:oldest_first`,
-      `comments:${postId}:2:10:default`,
-      `comments:${postId}:2:10:most_recent`,
-      `comments:${postId}:2:10:oldest_first`,
-      `comments:${postId}:1:5:default`,
-      `comments:${postId}:1:5:most_recent`,
-      `comments:${postId}:1:5:oldest_first`,
-      `comments:${postId}:2:5:default`,
-      `comments:${postId}:2:5:most_recent`,
-      `comments:${postId}:2:5:oldest_first`,
+      `comments:${postId}:first:10:default:2`,
+      `comments:${postId}:first:10:most_recent:2`,
+      `comments:${postId}:first:10:oldest_first:2`,
+      `comments:${postId}:first:5:default:2`,
+      `comments:${postId}:first:5:most_recent:2`,
+      `comments:${postId}:first:5:oldest_first:2`,
+      `comments:${postId}:first:10:default:0`,
+      `comments:${postId}:first:10:most_recent:0`,
+      `comments:${postId}:first:10:oldest_first:0`,
+      `comments:${postId}:first:5:default:0`,
+      `comments:${postId}:first:5:most_recent:0`,
+      `comments:${postId}:first:5:oldest_first:0`,
     ];
 
     for (const pattern of commonPatterns) {
       try {
         await this.cacheManager.del(pattern);
-      } catch (error) {
+      } catch {
         // Ignore errors for non-existent keys
       }
     }
   }
 
-  // Replies caching
+  // Replies caching (simplified for cursor pagination)
   async getReplies(
     commentId: number,
-    page: number,
     limit: number,
     sortOrder?: string,
+    depth?: number,
   ): Promise<any> {
     try {
-      const key = `replies:${commentId}:${page}:${limit}:${sortOrder || 'default'}`;
+      // Only cache first page (no cursor)
+      const key = `replies:${commentId}:first:${limit}:${sortOrder || 'default'}:${depth || 2}`;
       return await this.cacheManager.get(key);
-    } catch (error) {
+    } catch {
       this.logger.debug(
         `Cache get error for replies:${commentId}`,
         'CacheService',
@@ -148,37 +170,38 @@ export class CacheService {
 
   async setReplies(
     commentId: number,
-    page: number,
     limit: number,
     replies: any,
     sortOrder?: string,
+    depth?: number,
     ttl?: number,
   ): Promise<void> {
-    const key = `replies:${commentId}:${page}:${limit}:${sortOrder || 'default'}`;
+    // Only cache first page (no cursor)
+    const key = `replies:${commentId}:first:${limit}:${sortOrder || 'default'}:${depth || 2}`;
     await this.cacheManager.set(key, replies, ttl || 15 * 60 * 1000); // 15 minutes
   }
 
   async deleteRepliesForComment(commentId: number): Promise<void> {
     // Try to clear common reply cache patterns for this comment
     const commonPatterns = [
-      `replies:${commentId}:1:5:default`,
-      `replies:${commentId}:1:5:most_recent`,
-      `replies:${commentId}:1:5:oldest_first`,
-      `replies:${commentId}:2:5:default`,
-      `replies:${commentId}:2:5:most_recent`,
-      `replies:${commentId}:2:5:oldest_first`,
-      `replies:${commentId}:1:10:default`,
-      `replies:${commentId}:1:10:most_recent`,
-      `replies:${commentId}:1:10:oldest_first`,
-      `replies:${commentId}:2:10:default`,
-      `replies:${commentId}:2:10:most_recent`,
-      `replies:${commentId}:2:10:oldest_first`,
+      `replies:${commentId}:first:5:default:2`,
+      `replies:${commentId}:first:5:most_recent:2`,
+      `replies:${commentId}:first:5:oldest_first:2`,
+      `replies:${commentId}:first:10:default:2`,
+      `replies:${commentId}:first:10:most_recent:2`,
+      `replies:${commentId}:first:10:oldest_first:2`,
+      `replies:${commentId}:first:5:default:0`,
+      `replies:${commentId}:first:5:most_recent:0`,
+      `replies:${commentId}:first:5:oldest_first:0`,
+      `replies:${commentId}:first:10:default:0`,
+      `replies:${commentId}:first:10:most_recent:0`,
+      `replies:${commentId}:first:10:oldest_first:0`,
     ];
 
     for (const pattern of commonPatterns) {
       try {
         await this.cacheManager.del(pattern);
-      } catch (error) {
+      } catch {
         // Ignore errors for non-existent keys
       }
     }
@@ -189,13 +212,13 @@ export class CacheService {
     postId: number,
     includeComments: boolean,
     commentsLimit?: number,
-    commentsPage?: number,
+    commentsCursor?: string,
     commentsSortOrder?: string,
   ): Promise<any> {
     try {
-      const key = `post_with_comments:${postId}:${includeComments}:${commentsLimit || 0}:${commentsPage || 0}:${commentsSortOrder || 'default'}`;
+      const key = `post_with_comments:${postId}:${includeComments}:${commentsLimit || 0}:${commentsCursor || 'none'}:${commentsSortOrder || 'default'}`;
       return await this.cacheManager.get(key);
-    } catch (error) {
+    } catch {
       this.logger.debug(
         `Cache get error for post with comments: ${postId}`,
         'CacheService',
@@ -209,31 +232,31 @@ export class CacheService {
     includeComments: boolean,
     data: any,
     commentsLimit?: number,
-    commentsPage?: number,
+    commentsCursor?: string,
     commentsSortOrder?: string,
     ttl?: number,
   ): Promise<void> {
-    const key = `post_with_comments:${postId}:${includeComments}:${commentsLimit || 0}:${commentsPage || 0}:${commentsSortOrder || 'default'}`;
+    const key = `post_with_comments:${postId}:${includeComments}:${commentsLimit || 0}:${commentsCursor || 'none'}:${commentsSortOrder || 'default'}`;
     await this.cacheManager.set(key, data, ttl || 20 * 60 * 1000); // 20 minutes
   }
 
   async deletePostWithComments(postId: number): Promise<void> {
     // Delete all variations of this cache key
     const commonPatterns = [
-      `post_with_comments:${postId}:true:0:0:default`,
-      `post_with_comments:${postId}:false:0:0:default`,
-      `post_with_comments:${postId}:true:10:1:default`,
-      `post_with_comments:${postId}:false:10:1:default`,
-      `post_with_comments:${postId}:true:10:1:most_recent`,
-      `post_with_comments:${postId}:false:10:1:most_recent`,
-      `post_with_comments:${postId}:true:10:1:oldest_first`,
-      `post_with_comments:${postId}:false:10:1:oldest_first`,
+      `post_with_comments:${postId}:true:0:none:default`,
+      `post_with_comments:${postId}:false:0:none:default`,
+      `post_with_comments:${postId}:true:10:none:default`,
+      `post_with_comments:${postId}:false:10:none:default`,
+      `post_with_comments:${postId}:true:10:none:most_recent`,
+      `post_with_comments:${postId}:false:10:none:most_recent`,
+      `post_with_comments:${postId}:true:10:none:oldest_first`,
+      `post_with_comments:${postId}:false:10:none:oldest_first`,
     ];
 
     for (const pattern of commonPatterns) {
       try {
         await this.cacheManager.del(pattern);
-      } catch (error) {
+      } catch {
         // Ignore errors for non-existent keys
       }
     }
@@ -272,7 +295,7 @@ export class CacheService {
   async get<T>(key: string): Promise<T | undefined> {
     try {
       return await this.cacheManager.get<T>(key);
-    } catch (error) {
+    } catch {
       this.logger.debug(`Cache get error for key: ${key}`, 'CacheService');
       return undefined;
     }
@@ -293,7 +316,7 @@ export class CacheService {
       'reset' in this.cacheManager &&
       typeof this.cacheManager.reset === 'function'
     ) {
-      await (this.cacheManager as any).reset();
+      await (this.cacheManager as { reset(): Promise<void> }).reset();
     }
   }
 }

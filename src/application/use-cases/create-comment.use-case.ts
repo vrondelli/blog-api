@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CommentRepository } from '../../domain/repositories/comment.repository';
 import { BlogPostRepository } from '../../domain/repositories/blog-post.repository';
 import { Comment } from '../../domain/entities/comment.entity';

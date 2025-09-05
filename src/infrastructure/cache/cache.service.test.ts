@@ -3,6 +3,8 @@ import { CacheModule, CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { CacheService } from './cache.service';
 import { WinstonLoggerService } from '../logging/winston-logger.service';
+import { BlogPost } from '../../domain/entities/blog-post.entity';
+import { Comment } from '../../domain/entities/comment.entity';
 
 describe('CacheService', () => {
   let service: CacheService;
@@ -16,7 +18,8 @@ describe('CacheService', () => {
       error: jest.fn(),
       warn: jest.fn(),
       debug: jest.fn(),
-    } as any;
+      verbose: jest.fn(),
+    } as unknown as jest.Mocked<WinstonLoggerService>;
 
     const module: TestingModule = await Test.createTestingModule({
       imports: [
@@ -44,18 +47,18 @@ describe('CacheService', () => {
       'reset' in cacheManager &&
       typeof cacheManager.reset === 'function'
     ) {
-      await (cacheManager as any).reset();
+      await (cacheManager as { reset: () => Promise<void> }).reset();
     }
   });
 
   describe('Blog Post Caching', () => {
-    const mockPost = {
-      id: 1,
-      title: 'Test Post',
-      content: 'Test Content',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const mockPost = new BlogPost(
+      1,
+      'Test Post',
+      'Test Content',
+      new Date(),
+      new Date(),
+    );
 
     it('should cache and retrieve a blog post', async () => {
       // Set cache
@@ -87,7 +90,14 @@ describe('CacheService', () => {
     });
 
     it('should cache blog posts list', async () => {
-      const mockPosts = [mockPost, { ...mockPost, id: 2, title: 'Post 2' }];
+      const mockPost2 = new BlogPost(
+        2,
+        'Post 2',
+        'Test Content',
+        new Date(),
+        new Date(),
+      );
+      const mockPosts = [mockPost, mockPost2];
 
       await service.setBlogPostsList(mockPosts);
       const cached = await service.getBlogPostsList();
@@ -107,104 +117,113 @@ describe('CacheService', () => {
   });
 
   describe('Comments Caching', () => {
+    const mockComment = new Comment(
+      1,
+      'Test comment',
+      'Test Author',
+      new Date(),
+      new Date(),
+      1,
+    );
+
     const mockComments = {
-      data: [
-        {
-          id: 1,
-          content: 'Test comment',
-          author: 'Test Author',
-          blogPostId: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
+      data: [mockComment],
       total: 1,
-      page: 1,
       limit: 10,
-      totalPages: 1,
       hasNext: false,
       hasPrev: false,
     };
 
     it('should cache and retrieve comments with pagination', async () => {
-      await service.setComments(1, 1, 10, mockComments, 'most_recent');
-      const cached = await service.getComments(1, 1, 10, 'most_recent');
+      await service.setComments(1, 10, mockComments, 'most_recent', 2);
+      const cached = await service.getComments(1, 10, 'most_recent', 2);
 
       expect(cached).toEqual(mockComments);
     });
 
-    it('should handle different pagination parameters as different cache keys', async () => {
-      await service.setComments(1, 1, 10, mockComments, 'most_recent');
-      await service.setComments(
-        1,
-        2,
-        10,
-        { ...mockComments, page: 2 },
-        'most_recent',
-      );
-
-      const page1 = await service.getComments(1, 1, 10, 'most_recent');
-      const page2 = await service.getComments(1, 2, 10, 'most_recent');
-
-      expect(page1.page).toBe(1);
-      expect(page2.page).toBe(2);
-    });
+    // Removed pagination test as cursor pagination doesn't use traditional page numbers
 
     it('should handle different sort orders as different cache keys', async () => {
+      const mockComment1 = new Comment(
+        1,
+        'Comment 1',
+        'Author 1',
+        new Date(),
+        new Date(),
+        1,
+      );
+      const mockComment2 = new Comment(
+        2,
+        'Comment 2',
+        'Author 2',
+        new Date(),
+        new Date(),
+        1,
+      );
+
       const mockCommentsRecent = {
-        ...mockComments,
-        data: [{ ...mockComments.data[0], id: 1 }],
+        data: [mockComment1],
+        total: 1,
+        limit: 10,
+        hasNext: false,
+        hasPrev: false,
       };
       const mockCommentsOldest = {
-        ...mockComments,
-        data: [{ ...mockComments.data[0], id: 2 }],
+        data: [mockComment2],
+        total: 1,
+        limit: 10,
+        hasNext: false,
+        hasPrev: false,
       };
 
-      await service.setComments(1, 1, 10, mockCommentsRecent, 'most_recent');
-      await service.setComments(1, 1, 10, mockCommentsOldest, 'oldest_first');
+      await service.setComments(1, 10, mockCommentsRecent, 'most_recent', 2);
+      await service.setComments(1, 10, mockCommentsOldest, 'oldest_first', 2);
 
-      const recent = await service.getComments(1, 1, 10, 'most_recent');
-      const oldest = await service.getComments(1, 1, 10, 'oldest_first');
+      const recent = await service.getComments(1, 10, 'most_recent', 2);
+      const oldest = await service.getComments(1, 10, 'oldest_first', 2);
 
-      expect(recent.data[0].id).toBe(1);
-      expect(oldest.data[0].id).toBe(2);
+      expect(recent?.data[0].id).toBe(1);
+      expect(oldest?.data[0].id).toBe(2);
     });
   });
 
   describe('Replies Caching', () => {
+    const mockReply = new Comment(
+      2,
+      'Test reply',
+      'Reply Author',
+      new Date(),
+      new Date(),
+      1,
+      1, // parentId
+    );
+
     const mockReplies = {
-      data: [
-        {
-          id: 2,
-          content: 'Test reply',
-          author: 'Reply Author',
-          blogPostId: 1,
-          parentId: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
+      data: [mockReply],
       total: 1,
-      page: 1,
       limit: 5,
-      totalPages: 1,
       hasNext: false,
       hasPrev: false,
     };
 
     it('should cache and retrieve replies', async () => {
-      await service.setReplies(1, 1, 5, mockReplies);
-      const cached = await service.getReplies(1, 1, 5);
+      await service.setReplies(1, 5, mockReplies, undefined, 2);
+      const cached: typeof mockReplies | null = await service.getReplies(
+        1,
+        5,
+        undefined,
+        2,
+      );
 
       expect(cached).toEqual(mockReplies);
     });
 
     it('should delete replies for comment', async () => {
-      await service.setReplies(1, 1, 5, mockReplies);
-      expect(await service.getReplies(1, 1, 5)).toEqual(mockReplies);
+      await service.setReplies(1, 5, mockReplies, undefined, 2);
+      expect(await service.getReplies(1, 5, undefined, 2)).toEqual(mockReplies);
 
       await service.deleteRepliesForComment(1);
-      expect(await service.getReplies(1, 1, 5)).toBeUndefined();
+      expect(await service.getReplies(1, 5, undefined, 2)).toBeUndefined();
     });
   });
 
@@ -240,16 +259,17 @@ describe('CacheService', () => {
         true,
         mockPostWithComments,
         10,
-        1,
+        undefined,
         'most_recent',
       );
-      const cached = await service.getPostWithComments(
-        1,
-        true,
-        10,
-        1,
-        'most_recent',
-      );
+      const cached: typeof mockPostWithComments | null =
+        await service.getPostWithComments(
+          1,
+          true,
+          10,
+          undefined,
+          'most_recent',
+        );
 
       expect(cached).toEqual(mockPostWithComments);
     });
@@ -264,25 +284,39 @@ describe('CacheService', () => {
       await service.setPostWithComments(1, true, withComments);
       await service.setPostWithComments(1, false, withoutComments);
 
-      const cached1 = await service.getPostWithComments(1, true);
-      const cached2 = await service.getPostWithComments(1, false);
+      const cached1: typeof withComments | null =
+        await service.getPostWithComments(1, true);
+      const cached2: typeof withoutComments | null =
+        await service.getPostWithComments(1, false);
 
-      expect(cached1.comments).toBeTruthy();
-      expect(cached2.comments).toBeNull();
+      expect(cached1?.comments).toBeTruthy();
+      expect(cached2?.comments).toBeNull();
     });
   });
 
   describe('Cache Invalidation', () => {
     it('should invalidate all post-related caches', async () => {
-      const mockPost = { id: 1, title: 'Test' };
-      const mockComments = { data: [], total: 0 };
+      const mockPost = new BlogPost(
+        1,
+        'Test',
+        'Test Content',
+        new Date(),
+        new Date(),
+      );
+      const mockComments = {
+        data: [],
+        total: 0,
+        limit: 10,
+        hasNext: false,
+        hasPrev: false,
+      };
       const mockPostWithComments = { post: mockPost, comments: mockComments };
 
       // Set all caches
       await service.setBlogPost(1, mockPost);
       await service.setBlogPostsList([mockPost]);
       await service.setPostWithComments(1, true, mockPostWithComments);
-      await service.setComments(1, 1, 10, mockComments);
+      await service.setComments(1, 10, mockComments, undefined, 2);
 
       // Verify they're cached
       expect(await service.getBlogPost(1)).toEqual(mockPost);
@@ -290,7 +324,9 @@ describe('CacheService', () => {
       expect(await service.getPostWithComments(1, true)).toEqual(
         mockPostWithComments,
       );
-      expect(await service.getComments(1, 1, 10)).toEqual(mockComments);
+      expect(await service.getComments(1, 10, undefined, 2)).toEqual(
+        mockComments,
+      );
 
       // Invalidate post cache
       await service.invalidatePostCache(1);
@@ -302,21 +338,42 @@ describe('CacheService', () => {
     });
 
     it('should invalidate comment-related caches', async () => {
-      const mockComments = { data: [], total: 0 };
-      const mockPostWithComments = { post: {}, comments: mockComments };
-      const mockReplies = { data: [], total: 0 };
+      const mockComments = {
+        data: [],
+        total: 0,
+        limit: 10,
+        hasNext: false,
+        hasPrev: false,
+      };
+      const mockPost = new BlogPost(
+        1,
+        'Test',
+        'Test Content',
+        new Date(),
+        new Date(),
+      );
+      const mockPostWithComments = { post: mockPost, comments: mockComments };
+      const mockReplies = {
+        data: [],
+        total: 0,
+        limit: 5,
+        hasNext: false,
+        hasPrev: false,
+      };
 
       // Set caches
-      await service.setComments(1, 1, 10, mockComments);
+      await service.setComments(1, 10, mockComments, undefined, 2);
       await service.setPostWithComments(1, true, mockPostWithComments);
-      await service.setReplies(1, 1, 5, mockReplies);
+      await service.setReplies(1, 5, mockReplies, undefined, 2);
 
       // Verify they're cached
-      expect(await service.getComments(1, 1, 10)).toEqual(mockComments);
+      expect(await service.getComments(1, 10, undefined, 2)).toEqual(
+        mockComments,
+      );
       expect(await service.getPostWithComments(1, true)).toEqual(
         mockPostWithComments,
       );
-      expect(await service.getReplies(1, 1, 5)).toEqual(mockReplies);
+      expect(await service.getReplies(1, 5, undefined, 2)).toEqual(mockReplies);
 
       // Invalidate comment cache
       await service.invalidateCommentCache(1, 1);

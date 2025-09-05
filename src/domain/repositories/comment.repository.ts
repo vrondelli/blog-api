@@ -1,18 +1,16 @@
 import { Comment } from '../entities/comment.entity';
 
 export interface PaginationOptions {
-  page: number;
   limit: number;
 }
 
 export interface PaginatedResult<T> {
   data: T[];
   total: number;
-  page: number;
   limit: number;
-  totalPages: number;
   hasNext: boolean;
   hasPrev: boolean;
+  nextCursor?: string | null; // For cursor-based pagination (opaque string)
 }
 
 export enum CommentSortOrder {
@@ -23,6 +21,8 @@ export enum CommentSortOrder {
 
 export interface CommentQueryOptions extends PaginationOptions {
   sortOrder?: CommentSortOrder;
+  cursor?: string;
+  depth?: number;
 }
 
 export abstract class CommentRepository {
@@ -30,11 +30,11 @@ export abstract class CommentRepository {
   abstract findById(id: number): Promise<Comment | null>;
   abstract findByBlogPostId(
     blogPostId: number,
-    options?: CommentQueryOptions,
+    options?: CommentQueryOptions & { depth?: number; cursor?: string },
   ): Promise<PaginatedResult<Comment>>;
   abstract findRepliesByParentId(
     parentId: number,
-    options?: CommentQueryOptions,
+    options?: CommentQueryOptions & { depth?: number; cursor?: string },
   ): Promise<PaginatedResult<Comment>>;
   abstract create(
     content: string,

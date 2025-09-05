@@ -1,9 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { DatabaseService } from '../../src/infrastructure/database/database.service';
 import { CacheService } from '../../src/infrastructure/cache/cache.service';
-import { AppModule } from '../../src/app.module';
 import { E2ETestSetup } from '../setup/e2e-setup';
 
 describe('Cache Integration (e2e)', () => {
@@ -32,8 +31,7 @@ describe('Cache Integration (e2e)', () => {
       // Create test data
       const postData = {
         title: 'Test Post',
-        content: 'Test Content',
-        author: 'Test Author',
+        content: 'Test Content for caching validation',
       };
 
       await request(app.getHttpServer())
@@ -71,8 +69,7 @@ describe('Cache Integration (e2e)', () => {
         .post('/api/posts')
         .send({
           title: 'First Post',
-          content: 'First Content',
-          author: 'Author 1',
+          content: 'First Content for cache testing',
         })
         .expect(201);
 
@@ -88,8 +85,7 @@ describe('Cache Integration (e2e)', () => {
         .post('/api/posts')
         .send({
           title: 'Second Post',
-          content: 'Second Content',
-          author: 'Author 2',
+          content: 'Second Content for cache testing',
         })
         .expect(201);
 
@@ -115,8 +111,7 @@ describe('Cache Integration (e2e)', () => {
         .post('/api/posts')
         .send({
           title: 'Test Post for Comments',
-          content: 'Test Content',
-          author: 'Test Author',
+          content: 'Test Content for cache testing',
         })
         .expect(201);
 
@@ -194,14 +189,14 @@ describe('Cache Integration (e2e)', () => {
         createdPostId,
         true,
         10, // default commentsLimit
-        1, // default commentsPage
+        undefined, // no cursor
         undefined, // default commentsSortOrder
       );
       const cachedWithoutComments = await cacheService.getPostWithComments(
         createdPostId,
         false,
         10, // default commentsLimit
-        1, // default commentsPage
+        undefined, // no cursor
         undefined, // default commentsSortOrder
       );
 
@@ -222,7 +217,7 @@ describe('Cache Integration (e2e)', () => {
         createdPostId,
         true,
         10, // default commentsLimit
-        1, // default commentsPage
+        undefined, // no cursor
         undefined, // default commentsSortOrder
       );
       expect(cachedPost).toBeDefined();
@@ -242,7 +237,7 @@ describe('Cache Integration (e2e)', () => {
         createdPostId,
         true,
         10, // default commentsLimit
-        1, // default commentsPage
+        undefined, // no cursor
         undefined, // default commentsSortOrder
       );
       expect(invalidatedCache).toBeUndefined();
@@ -265,8 +260,7 @@ describe('Cache Integration (e2e)', () => {
         .post('/api/posts')
         .send({
           title: 'Test Post for Pagination',
-          content: 'Test Content',
-          author: 'Test Author',
+          content: 'Test Content for pagination testing',
         })
         .expect(201);
 
@@ -295,42 +289,46 @@ describe('Cache Integration (e2e)', () => {
       );
       commentFindManySpy.mockClear();
 
-      // Request page 1
-      const page1Response = await request(app.getHttpServer())
-        .get(`/api/posts/${createdPostId}/comments?page=1&limit=5`)
+      // Request first batch
+      const firstResponse = await request(app.getHttpServer())
+        .get(`/api/posts/${createdPostId}/comments?limit=5&depth=0`)
         .expect(200);
 
       expect(commentFindManySpy).toHaveBeenCalledTimes(1);
-      expect(page1Response.body.data).toHaveLength(5);
-      expect(page1Response.body.page).toBe(1);
+      expect(firstResponse.body.data).toHaveLength(5);
+      expect(firstResponse.body.hasNext).toBe(true);
 
-      // Request page 2
-      const page2Response = await request(app.getHttpServer())
-        .get(`/api/posts/${createdPostId}/comments?page=2&limit=5`)
+      // Request second batch using cursor
+      const secondResponse = await request(app.getHttpServer())
+        .get(
+          `/api/posts/${createdPostId}/comments?limit=5&depth=0&cursor=${firstResponse.body.nextCursor}`,
+        )
         .expect(200);
 
       expect(commentFindManySpy).toHaveBeenCalledTimes(2);
-      expect(page2Response.body.data).toHaveLength(5);
-      expect(page2Response.body.page).toBe(2);
+      expect(secondResponse.body.data).toHaveLength(5);
+      expect(secondResponse.body.hasNext).toBe(true); // Still more comments (11-15)
 
       // Reset spy
       commentFindManySpy.mockClear();
 
-      // Request page 1 again - should serve from cache
-      const page1CachedResponse = await request(app.getHttpServer())
-        .get(`/api/posts/${createdPostId}/comments?page=1&limit=5`)
+      // Request first batch again - should serve from cache (no cursor)
+      const firstCachedResponse = await request(app.getHttpServer())
+        .get(`/api/posts/${createdPostId}/comments?limit=5&depth=0`)
         .expect(200);
 
       expect(commentFindManySpy).not.toHaveBeenCalled();
-      expect(page1CachedResponse.body).toEqual(page1Response.body);
+      expect(firstCachedResponse.body).toEqual(firstResponse.body);
 
-      // Request page 2 again - should serve from cache
-      const page2CachedResponse = await request(app.getHttpServer())
-        .get(`/api/posts/${createdPostId}/comments?page=2&limit=5`)
+      // Request second batch again - should NOT be cached (has cursor)
+      const secondNotCachedResponse = await request(app.getHttpServer())
+        .get(
+          `/api/posts/${createdPostId}/comments?limit=5&depth=0&cursor=${firstResponse.body.nextCursor}`,
+        )
         .expect(200);
 
-      expect(commentFindManySpy).not.toHaveBeenCalled();
-      expect(page2CachedResponse.body).toEqual(page2Response.body);
+      expect(commentFindManySpy).toHaveBeenCalledTimes(1); // Should fetch from DB
+      expect(secondNotCachedResponse.body).toEqual(secondResponse.body);
     });
 
     it('should cache different sort orders independently', async () => {
@@ -351,18 +349,22 @@ describe('Cache Integration (e2e)', () => {
         )
         .expect(200);
 
+      // Verify responses are valid
+      expect(recentResponse.status).toBe(200);
+      expect(oldestResponse.status).toBe(200);
+
       // Verify they're cached independently
       const cachedRecent = await cacheService.getComments(
         createdPostId,
-        1,
         5,
         'most_recent',
+        2, // default depth
       );
       const cachedOldest = await cacheService.getComments(
         createdPostId,
-        1,
         5,
         'oldest_first',
+        2, // default depth
       );
 
       expect(cachedRecent).toBeDefined();
@@ -381,8 +383,7 @@ describe('Cache Integration (e2e)', () => {
         .post('/api/posts')
         .send({
           title: 'Test Post for Replies',
-          content: 'Test Content',
-          author: 'Test Author',
+          content: 'Test Content for replies testing',
         })
         .expect(201);
 
@@ -448,8 +449,9 @@ describe('Cache Integration (e2e)', () => {
       // Verify cache is populated
       const cachedReplies = await cacheService.getReplies(
         parentCommentId,
-        1,
         10,
+        undefined, // default sort order
+        2, // default depth
       );
       expect(cachedReplies).toBeDefined();
       expect(cachedReplies.data).toHaveLength(5);
@@ -471,8 +473,9 @@ describe('Cache Integration (e2e)', () => {
       // Verify cache was invalidated
       const invalidatedCache = await cacheService.getReplies(
         parentCommentId,
-        1,
         10,
+        undefined, // default sort order
+        2, // default depth
       );
       expect(invalidatedCache).toBeUndefined();
 
@@ -493,8 +496,7 @@ describe('Cache Integration (e2e)', () => {
         .post('/api/posts')
         .send({
           title: 'TTL Test Post',
-          content: 'TTL Test Content',
-          author: 'TTL Test Author',
+          content: 'TTL Test Content for cache expiration testing',
         })
         .expect(201);
 
@@ -523,8 +525,7 @@ describe('Cache Integration (e2e)', () => {
         .post('/api/posts')
         .send({
           title: 'Performance Test Post',
-          content: 'Performance Test Content',
-          author: 'Performance Test Author',
+          content: 'Performance Test Content for performance testing',
         })
         .expect(201);
 

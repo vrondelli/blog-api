@@ -9,7 +9,8 @@ export class GetPostWithCommentsQuery {
     public readonly postId: number,
     public readonly includeComments: boolean = false,
     public readonly commentsLimit?: number,
-    public readonly commentsPage?: number,
     public readonly commentsSortOrder?: CommentSortOrder,
+    public readonly commentsDepth?: number,
+    public readonly commentsCursor?: string,
   ) {}
 }

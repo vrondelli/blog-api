@@ -3,6 +3,9 @@ import { INestApplication } from '@nestjs/common';
 import { AppModule } from '../../src/app.module';
 import { DatabaseService } from '../../src/infrastructure/database/database.service';
 import { CacheService } from '../../src/infrastructure/cache/cache.service';
+import { WinstonLoggerService } from '../../src/infrastructure/logging/winston-logger.service';
+import { AllExceptionsFilter } from '../../src/infrastructure/exceptions/all-exceptions.filter';
+import { CustomValidationPipe } from '../../src/infrastructure/validation/custom-validation.pipe';
 
 export class E2ETestSetup {
   private static app: INestApplication;
@@ -38,6 +41,16 @@ export class E2ETestSetup {
     this.app = moduleFixture.createNestApplication();
     this.databaseService = moduleFixture.get<DatabaseService>(DatabaseService);
     this.cacheService = moduleFixture.get<CacheService>(CacheService);
+
+    // Apply the same configuration as main.ts bootstrap
+    const logger = this.app.get(WinstonLoggerService);
+    this.app.useLogger(logger);
+
+    // Apply global exception filter
+    this.app.useGlobalFilters(new AllExceptionsFilter(logger));
+
+    // Apply global validation pipe
+    this.app.useGlobalPipes(new CustomValidationPipe());
 
     await this.app.init();
   }

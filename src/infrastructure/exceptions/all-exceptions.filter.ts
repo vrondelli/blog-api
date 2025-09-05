@@ -8,6 +8,7 @@ import {
 import { Request, Response } from 'express';
 import { WinstonLoggerService } from '../logging/winston-logger.service';
 import { Prisma } from '@prisma/client';
+import { ValidationException } from './custom.exceptions';
 
 interface ErrorResponse {
   error: string;
@@ -31,6 +32,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const errorResponse = this.buildErrorResponse(exception, request);
 
     // Log the error with appropriate level
+
     this.logError(exception, request, errorResponse);
 
     // Set retry-after header for rate limit errors
@@ -48,17 +50,72 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const timestamp = new Date().toISOString();
     const path = request.url;
 
+    // Handle validation exceptions specifically
+    if (exception instanceof ValidationException) {
+      return {
+        error: 'Validation Failed',
+        message: 'The request data is invalid',
+        statusCode: HttpStatus.BAD_REQUEST,
+        timestamp,
+        path,
+        details: exception.validationErrors,
+      };
+    }
+
     // Handle HTTP exceptions (including our custom ones)
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
 
-      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-        return {
-          ...(exceptionResponse as any),
-          path,
-          timestamp,
+      // Handle NestJS validation errors specifically
+      if (
+        status === (HttpStatus.BAD_REQUEST as number) &&
+        typeof exceptionResponse === 'object' &&
+        exceptionResponse !== null
+      ) {
+        const response = exceptionResponse as {
+          message?: string | string[];
+          error?: string;
+          statusCode?: number;
         };
+
+        // Check if this is a validation error from NestJS
+        if (
+          response.message &&
+          Array.isArray(response.message) &&
+          response.error === 'Bad Request'
+        ) {
+          return {
+            error: 'Validation Failed',
+            message: 'The request data is invalid',
+            statusCode: HttpStatus.BAD_REQUEST,
+            timestamp,
+            path,
+            details: response.message,
+          };
+        }
+      }
+
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        const errorObj = exceptionResponse as Record<string, unknown>;
+        const result: ErrorResponse = {
+          error: errorObj.error ? String(errorObj.error) : 'Http Exception',
+          message: errorObj.message
+            ? String(errorObj.message)
+            : 'An error occurred',
+          statusCode:
+            typeof errorObj.statusCode === 'number'
+              ? errorObj.statusCode
+              : status,
+          timestamp,
+          path,
+        };
+
+        if (errorObj.details) {
+          result.details = errorObj.details;
+        }
+
+        return result;
       }
 
       return {
@@ -138,9 +195,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
   ): ErrorResponse {
     switch (exception.code) {
       case 'P2002': // Unique constraint violation
+        const targetField = exception.meta?.target;
+        const fieldName = targetField ? String(targetField) : 'field';
         return {
           error: 'Duplicate Entry',
-          message: `A record with this ${exception.meta?.target} already exists`,
+          message: `A record with this ${fieldName} already exists`,
           statusCode: HttpStatus.CONFLICT,
           timestamp,
           path,
@@ -196,10 +255,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (
       typeof exception === 'object' &&
       exception !== null &&
-      'validationErrors' in exception &&
-      Array.isArray((exception as any).validationErrors)
+      'validationErrors' in exception
     ) {
-      return (exception as any).validationErrors;
+      const validationException = exception as { validationErrors: unknown };
+      if (Array.isArray(validationException.validationErrors)) {
+        return validationException.validationErrors as string[];
+      }
     }
     return [];
   }

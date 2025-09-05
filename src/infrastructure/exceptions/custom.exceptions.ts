@@ -43,17 +43,8 @@ export class InvalidCommentParentException extends HttpException {
 }
 
 export class ValidationException extends HttpException {
-  constructor(validationErrors: string[]) {
-    super(
-      {
-        error: 'Validation Failed',
-        message: 'The request data is invalid',
-        details: validationErrors,
-        statusCode: HttpStatus.BAD_REQUEST,
-        timestamp: new Date().toISOString(),
-      },
-      HttpStatus.BAD_REQUEST,
-    );
+  constructor(public readonly validationErrors: string[]) {
+    super('Validation Failed', HttpStatus.BAD_REQUEST);
   }
 }
 

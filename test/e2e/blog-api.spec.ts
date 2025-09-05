@@ -37,8 +37,8 @@ describe('Blog API (e2e)', () => {
 
     it('should get all blog posts', async () => {
       // Create test posts
-      const post1 = { title: 'Post 1', content: 'Content 1' };
-      const post2 = { title: 'Post 2', content: 'Content 2' };
+      const post1 = { title: 'Post 1', content: 'Content for post 1' };
+      const post2 = { title: 'Post 2', content: 'Content for post 2' };
 
       await request(app.getHttpServer()).post('/api/posts').send(post1);
       await request(app.getHttpServer()).post('/api/posts').send(post2);
@@ -119,7 +119,6 @@ describe('Blog API (e2e)', () => {
             }),
           ]),
           total: 1,
-          page: 1,
         },
       });
     });
@@ -226,7 +225,6 @@ describe('Blog API (e2e)', () => {
           expect.objectContaining({ content: 'Comment 2' }),
         ]),
         total: 2,
-        page: 1,
       });
     });
 
@@ -315,27 +313,25 @@ describe('Blog API (e2e)', () => {
     });
 
     it('should paginate comments', async () => {
-      const page1 = await request(app.getHttpServer())
+      const firstBatch = await request(app.getHttpServer())
         .get(`/api/posts/${testPostId}/comments`)
-        .query({ page: 1, limit: 5 })
+        .query({ limit: 5 })
         .expect(200);
 
-      expect(page1.body.data).toHaveLength(5);
-      expect(page1.body.total).toBe(15);
-      expect(page1.body.page).toBe(1);
-      expect(page1.body.totalPages).toBe(3);
-      expect(page1.body.hasNext).toBe(true);
-      expect(page1.body.hasPrev).toBe(false);
+      expect(firstBatch.body.data).toHaveLength(5);
+      expect(firstBatch.body.total).toBe(15);
+      expect(firstBatch.body.hasNext).toBe(true);
+      expect(firstBatch.body.hasPrev).toBe(false);
+      expect(firstBatch.body.nextCursor).toBeDefined();
 
-      const page2 = await request(app.getHttpServer())
+      const secondBatch = await request(app.getHttpServer())
         .get(`/api/posts/${testPostId}/comments`)
-        .query({ page: 2, limit: 5 })
+        .query({ limit: 5, cursor: firstBatch.body.nextCursor })
         .expect(200);
 
-      expect(page2.body.data).toHaveLength(5);
-      expect(page2.body.page).toBe(2);
-      expect(page2.body.hasNext).toBe(true);
-      expect(page2.body.hasPrev).toBe(true);
+      expect(secondBatch.body.data).toHaveLength(5);
+      expect(secondBatch.body.hasNext).toBe(true); // Still more comments (11-15)
+      expect(secondBatch.body.hasPrev).toBe(true);
     });
 
     it('should include comments in post response with pagination', async () => {
@@ -344,7 +340,6 @@ describe('Blog API (e2e)', () => {
         .query({
           includeComments: true,
           commentsLimit: 5,
-          commentsPage: 1,
         })
         .expect(200);
 

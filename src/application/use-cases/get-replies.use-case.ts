@@ -19,13 +19,23 @@ export class GetRepliesUseCase {
   async execute(
     query: GetRepliesQuery,
   ): Promise<PaginatedResult<CommentEntity>> {
-    // Try to get from cache first
-    const cachedReplies = await this.cacheService.getReplies(
-      query.parentId,
-      query.page,
-      query.limit,
-      query.sortOrder,
-    );
+    // For cursor-based pagination, we'll use a simpler cache strategy
+    // Only cache the first page (no cursor) since cursor pagination is dynamic
+    const useCache = !query.cursor;
+
+    // Try to get from cache first (only for first page without cursor)
+    let cachedReplies: Awaited<
+      ReturnType<typeof this.commentRepository.findRepliesByParentId>
+    > | null = null;
+    if (useCache) {
+      cachedReplies =
+        (await this.cacheService.getReplies(
+          query.parentId,
+          query.limit,
+          query.sortOrder,
+          query.depth,
+        )) || null;
+    }
 
     if (cachedReplies) {
       this.logger.debug('Returning replies from cache', 'GetRepliesUseCase');
@@ -37,20 +47,23 @@ export class GetRepliesUseCase {
     const result = await this.commentRepository.findRepliesByParentId(
       query.parentId,
       {
-        page: query.page,
         limit: query.limit,
         sortOrder: query.sortOrder,
+        depth: query.depth,
+        cursor: query.cursor,
       },
     );
 
-    // Cache the result
-    await this.cacheService.setReplies(
-      query.parentId,
-      query.page,
-      query.limit,
-      result,
-      query.sortOrder,
-    );
+    // Cache the result (only for first page without cursor)
+    if (useCache) {
+      await this.cacheService.setReplies(
+        query.parentId,
+        query.limit,
+        result,
+        query.sortOrder,
+        query.depth,
+      );
+    }
 
     return result;
   }
