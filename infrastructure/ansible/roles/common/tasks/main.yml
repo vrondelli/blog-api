@@ -17,6 +17,53 @@
     groups: sudo
     append: yes
 
+- name: Create SSH directory for app user
+  file:
+    path: '/home/{{ app_user }}/.ssh'
+    state: directory
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0700'
+
+- name: Copy SSH private key to app user
+  copy:
+    src: '{{ ansible_ssh_private_key_file }}'
+    dest: '/home/{{ app_user }}/.ssh/github_deploy_key'
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0600'
+  when: ansible_ssh_private_key_file is defined
+
+- name: Copy SSH public key to app user
+  copy:
+    src: '{{ ansible_ssh_private_key_file }}.pub'
+    dest: '/home/{{ app_user }}/.ssh/github_deploy_key.pub'
+    owner: '{{ app_user }}'
+    group: '{{ app_user }}'
+    mode: '0644'
+  when: ansible_ssh_private_key_file is defined
+
+- name: Configure Git for app user
+  become_user: '{{ app_user }}'
+  git_config:
+    name: '{{ item.name }}'
+    value: '{{ item.value }}'
+    scope: global
+  loop:
+    - {
+        name: 'core.sshCommand',
+        value: 'ssh -i /home/{{ app_user }}/.ssh/github_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no',
+      }
+    - { name: 'user.name', value: 'Deploy User' }
+    - { name: 'user.email', value: 'deploy@{{ domain_name }}' }
+
+- name: Add GitHub to known hosts for app user
+  become_user: '{{ app_user }}'
+  known_hosts:
+    name: github.com
+    key: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com') }}"
+    state: present
+
 - name: Create application directory
   file:
     path: '{{ app_dir }}'

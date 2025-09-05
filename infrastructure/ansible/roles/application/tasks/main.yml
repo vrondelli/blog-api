@@ -1,10 +1,23 @@
 ---
+- name: Test GitHub SSH connection for app user
+  become_user: '{{ app_user }}'
+  shell: ssh -T git@github.com -i /home/{{ app_user }}/.ssh/github_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no
+  register: github_test
+  failed_when: false
+  changed_when: false
+
+- name: Display GitHub connection test result
+  debug:
+    msg: 'GitHub SSH test result: {{ github_test.stderr }}'
+
 - name: Clone application repository
   git:
     repo: '{{ git_repo_url }}'
     dest: '{{ app_dir }}'
     version: "{{ git_branch | default('main') }}"
     force: yes
+    key_file: '/home/{{ app_user }}/.ssh/github_deploy_key'
+    accept_hostkey: yes
   become_user: '{{ app_user }}'
   when: git_repo_url is defined
 
@@ -61,7 +74,9 @@
 - name: Build and start application
   shell: |
     cd {{ app_dir }}
-    docker-compose -f docker-compose.prod.yml up -d --build
+    docker system prune -af --volumes
+    docker-compose -f docker-compose.prod.yml build --no-cache
+    docker-compose -f docker-compose.prod.yml up -d
   become_user: '{{ app_user }}'
 
 - name: Wait for application to be ready
