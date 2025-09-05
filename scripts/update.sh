@@ -83,7 +83,7 @@ cd "$(dirname "$0")/../infrastructure/ansible"
 # Set environment variables for Ansible
 export VPS_HOST="$VPS_IP"
 export VPS_USER="root"
-export SSH_PRIVATE_KEY_FILE="~/.ssh/blog_api_deploy"
+export SSH_PRIVATE_KEY_FILE="${SSH_PRIVATE_KEY_FILE}"
 export DOMAIN_NAME="$DOMAIN"
 export GIT_REPO_URL="$GIT_REPO_URL"
 export GIT_BRANCH="$GIT_BRANCH"

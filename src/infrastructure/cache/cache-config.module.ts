@@ -16,6 +16,22 @@ import { redisStore } from 'cache-manager-ioredis-yet';
         }
 
         // Use Redis for development/production
+        const redisUrl = process.env.REDIS_URL;
+        if (redisUrl) {
+          // Parse Redis URL (format: redis://[:password@]host:port[/db])
+          const url = new URL(redisUrl);
+          return {
+            store: await redisStore({
+              host: url.hostname,
+              port: parseInt(url.port) || 6379,
+              password: url.password || undefined,
+              db: parseInt(url.pathname.substring(1)) || 0,
+            }),
+            ttl: 60 * 60 * 1000, // 1 hour default TTL
+          };
+        }
+
+        // Fallback to individual environment variables
         return {
           store: await redisStore({
             host: process.env.REDIS_HOST || 'localhost',

@@ -2,10 +2,13 @@
 - name: Update Application
   hosts: all
   become: yes
-  gather_facts: no
+  gather_facts: yes
 
   vars:
     backup_dir: '/opt/backups/{{ ansible_date_time.epoch }}'
+    # Use the same password files as deploy to maintain consistency
+    postgres_password: "{{ lookup('password', '/tmp/postgres_password chars=ascii_letters,digits length=32') }}"
+    redis_password: "{{ lookup('password', '/tmp/redis_password chars=ascii_letters,digits length=32') }}"
 
   tasks:
     - name: Create backup directory
@@ -29,16 +32,17 @@
       become_user: '{{ app_user }}'
 
     - name: Pull latest code
-      git:
-        repo: '{{ git_repo_url }}'
-        dest: '{{ app_dir }}'
-        version: "{{ git_branch | default('main') }}"
-        force: yes
+      shell: |
+        cd {{ app_dir }}
+        export GIT_SSH_COMMAND="ssh -i /home/{{ app_user }}/.ssh/github_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+        git fetch --tags --force origin
+        git checkout {{ git_branch | default('main') }}
+        git reset --hard origin/{{ git_branch | default('main') }}
       become_user: '{{ app_user }}'
 
     - name: Copy environment file
       template:
-        src: .env.j2
+        src: ../roles/application/templates/.env.j2
         dest: '{{ app_dir }}/.env'
         owner: '{{ app_user }}'
         group: '{{ app_user }}'
